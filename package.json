@@ -1,0 +1,11 @@
+{
+  "name": "gemma4-camera-web",
+  "version": "1.0.0",
+  "description": "Camera web app with Gemma 4 E2B vision model",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
