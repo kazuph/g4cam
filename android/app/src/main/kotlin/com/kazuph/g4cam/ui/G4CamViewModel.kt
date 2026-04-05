@@ -37,6 +37,7 @@ data class CameraUiState(
     val countdown: Int = 0,
     val modelUnavailable: Boolean = false,
     val needsModelDownload: Boolean = false,
+    val needsLiteRTInit: Boolean = false,
     val isDownloading: Boolean = false,
     val activeBackend: InferenceBackend? = null,
 )
@@ -99,12 +100,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             }
             is ModelStatus.NeedsFallbackDownload -> {
                 if (downloader.isModelDownloaded()) {
-                    // Model already downloaded, initialize LiteRT-LM directly
-                    viewModelScope.launch {
-                        _uiState.value = _uiState.value.copy(statusText = "LiteRT-LMエンジンを初期化中...")
-                        val result = inference.initializeLiteRT(downloader.getModelFile())
-                        handleModelStatus(result)
-                    }
+                    // Model downloaded but not initialized - show button to start
+                    _uiState.value = _uiState.value.copy(
+                        needsModelDownload = false,
+                        needsLiteRTInit = true,
+                        statusText = "モデルDL済み - 初期化ボタンを押してください"
+                    )
                 } else {
                     _uiState.value = _uiState.value.copy(
                         needsModelDownload = true,
@@ -142,10 +143,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         is DownloadState.Completed -> {
                             _uiState.value = _uiState.value.copy(
                                 isDownloading = false,
-                                statusText = "LiteRT-LMエンジンを初期化中..."
+                                needsLiteRTInit = true,
+                                statusText = "DL完了！初期化ボタンを押してください"
                             )
-                            val result = inference.initializeLiteRT(downloader.getModelFile())
-                            handleModelStatus(result)
                         }
                         is DownloadState.Error -> {
                             _uiState.value = _uiState.value.copy(
@@ -170,14 +170,33 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchToLiteRTFallback() {
         _uiState.value = _uiState.value.copy(
-            modelUnavailable = false,
-            needsModelDownload = !downloader.isModelDownloaded()
+            modelUnavailable = false
         )
         if (downloader.isModelDownloaded()) {
-            viewModelScope.launch {
-                _uiState.value = _uiState.value.copy(statusText = "LiteRT-LMエンジンを初期化中...")
-                val result = inference.initializeLiteRT(downloader.getModelFile())
+            _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
+        } else {
+            _uiState.value = _uiState.value.copy(needsModelDownload = true)
+        }
+    }
+
+    fun startLiteRTInit() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                needsLiteRTInit = false,
+                statusText = "LiteRT-LMエンジンを初期化中...\n(10〜30秒かかります)",
+                showStatus = true
+            )
+            try {
+                val result = withTimeout(120_000) {
+                    inference.initializeLiteRT(downloader.getModelFile())
+                }
                 handleModelStatus(result)
+            } catch (e: Exception) {
+                Log.e(TAG, "LiteRT init timeout/error", e)
+                _uiState.value = _uiState.value.copy(
+                    statusText = "初期化タイムアウト: ${e.message}",
+                    modelUnavailable = true
+                )
             }
         }
     }

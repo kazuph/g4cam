@@ -158,6 +158,52 @@ fun G4CamApp(
         return
     }
 
+    // Model downloaded, needs initialization (user must press button)
+    if (uiState.needsLiteRTInit) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(text = "🤖", fontSize = 64.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "モデル準備完了",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "エンジンの初期化に\n10〜30秒かかります",
+                    color = Color(0xFFCCCCCC),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = { viewModel.startLiteRTInit() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF00CC66)
+                    ),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Text(
+                        text = "初期化開始",
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+        return
+    }
+
     if (!hasCameraPermission) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),

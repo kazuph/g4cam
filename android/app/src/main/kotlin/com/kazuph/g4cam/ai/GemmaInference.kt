@@ -87,21 +87,25 @@ class GemmaInference {
     }
 
     suspend fun initializeLiteRT(modelFile: File): ModelStatus {
-        return try {
-            val config = EngineConfig(
-                modelPath = modelFile.absolutePath,
-                backend = Backend.CPU,
-                visionBackend = Backend.CPU
-            )
-            val engine = Engine(config)
-            engine.initialize()
-            litertEngine = engine
-            activeBackend = InferenceBackend.LITERT_LM
-            isInitialized = true
-            Log.i(TAG, "LiteRT-LM engine initialized")
-            ModelStatus.Ready(InferenceBackend.LITERT_LM)
-        } catch (e: Exception) {
-            ModelStatus.Unavailable("LiteRT-LM初期化失敗: ${e.message}")
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                Log.i(TAG, "Starting LiteRT-LM engine initialization (this may take 10-30s)...")
+                val config = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.CPU,
+                    visionBackend = Backend.CPU
+                )
+                val engine = Engine(config)
+                engine.initialize()
+                litertEngine = engine
+                activeBackend = InferenceBackend.LITERT_LM
+                isInitialized = true
+                Log.i(TAG, "LiteRT-LM engine initialized successfully")
+                ModelStatus.Ready(InferenceBackend.LITERT_LM)
+            } catch (e: Exception) {
+                Log.e(TAG, "LiteRT-LM init failed", e)
+                ModelStatus.Unavailable("LiteRT-LM初期化失敗: ${e.message}")
+            }
         }
     }
 
