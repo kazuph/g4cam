@@ -5,7 +5,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="true" />
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- No INTERNET permission needed - model runs via AICore system service -->
+    <!-- Force remove INTERNET - ML Kit/Play Services auto-adds these but we need fully offline -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <!-- Explicitly remove dangerous permissions that libraries might request -->
     <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" />
