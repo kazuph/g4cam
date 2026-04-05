@@ -70,7 +70,15 @@ class GemmaInference {
                 ModelStatus.Downloading
             }
             else -> {
-                ModelStatus.Unavailable("Gemini Nano is not available on this device (status: $status)")
+                ModelStatus.Unavailable(
+                    "Gemma 4 (Gemini Nano 4 Preview) が利用できません。\n\n" +
+                    "セットアップ手順:\n" +
+                    "1. aicore-experimental Google グループに参加\n" +
+                    "2. Android AICore テストプログラムに参加\n" +
+                    "3. Play StoreでAICoreをベータ版に更新\n" +
+                    "4. AICoreアプリでPreviewモデルをDL\n\n" +
+                    "(status: $status)"
+                )
             }
         }
     }
