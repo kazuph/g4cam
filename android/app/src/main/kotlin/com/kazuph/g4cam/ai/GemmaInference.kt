@@ -86,38 +86,60 @@ class GemmaInference {
         )
     }
 
-    suspend fun initializeLiteRT(modelFile: File): ModelStatus {
+    suspend fun initializeLiteRT(context: android.content.Context, modelFile: File): ModelStatus {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                // Verify file integrity
-                val fileSize = modelFile.length()
-                Log.i(TAG, "Model file size: $fileSize bytes (${fileSize / 1_000_000}MB)")
-                if (fileSize < 2_500_000_000L) {
-                    Log.e(TAG, "Model file appears incomplete ($fileSize bytes). Expected ~2.58GB")
-                    modelFile.delete()
-                    return@withContext ModelStatus.NeedsFallbackDownload(
-                        "モデルファイルが不完全です（${fileSize / 1_000_000}MB）\n再ダウンロードが必要です"
-                    )
-                }
-
-                Log.i(TAG, "Starting LiteRT-LM engine initialization (this may take 10-30s)...")
-                val cacheDir = modelFile.parentFile?.absolutePath ?: ""
-                val config = EngineConfig(
-                    modelPath = modelFile.absolutePath,
-                    backend = Backend.CPU,
-                    visionBackend = Backend.CPU,
-                    cacheDir = cacheDir
+            // Verify file integrity
+            val fileSize = modelFile.length()
+            Log.i(TAG, "Model file size: $fileSize bytes (${fileSize / 1_000_000}MB)")
+            if (fileSize < 2_500_000_000L) {
+                Log.e(TAG, "Model file appears incomplete ($fileSize bytes). Expected ~2.58GB")
+                modelFile.delete()
+                return@withContext ModelStatus.NeedsFallbackDownload(
+                    "モデルファイルが不完全です（${fileSize / 1_000_000}MB）\n再ダウンロードが必要です"
                 )
-                val engine = Engine(config)
+            }
+
+            val cacheDirPath = context.cacheDir.path
+
+            // Try GPU first (676MB RAM) - much lighter than CPU (1733MB)
+            try {
+                Log.i(TAG, "Trying GPU backend (uses ~676MB RAM)...")
+                val gpuConfig = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.GPU(),
+                    visionBackend = Backend.GPU(),
+                    cacheDir = cacheDirPath
+                )
+                val engine = Engine(gpuConfig)
                 engine.initialize()
                 litertEngine = engine
                 activeBackend = InferenceBackend.LITERT_LM
                 isInitialized = true
-                Log.i(TAG, "LiteRT-LM engine initialized successfully")
-                ModelStatus.Ready(InferenceBackend.LITERT_LM)
+                Log.i(TAG, "LiteRT-LM GPU engine initialized successfully")
+                return@withContext ModelStatus.Ready(InferenceBackend.LITERT_LM)
             } catch (e: Exception) {
-                Log.e(TAG, "LiteRT-LM init failed", e)
-                ModelStatus.Unavailable("LiteRT-LM初期化失敗: ${e.message}")
+                Log.w(TAG, "GPU backend failed: ${e.message}, trying CPU fallback...")
+            }
+
+            // CPU fallback (1733MB RAM - heavier but more compatible)
+            try {
+                Log.i(TAG, "Trying CPU backend (uses ~1733MB RAM)...")
+                val cpuConfig = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = Backend.CPU(),
+                    visionBackend = Backend.CPU(),
+                    cacheDir = cacheDirPath
+                )
+                val engine = Engine(cpuConfig)
+                engine.initialize()
+                litertEngine = engine
+                activeBackend = InferenceBackend.LITERT_LM
+                isInitialized = true
+                Log.i(TAG, "LiteRT-LM CPU engine initialized successfully")
+                return@withContext ModelStatus.Ready(InferenceBackend.LITERT_LM)
+            } catch (e: Exception) {
+                Log.e(TAG, "LiteRT-LM CPU fallback also failed", e)
+                return@withContext ModelStatus.Unavailable("LiteRT-LM初期化失敗: ${e.message}")
             }
         }
     }

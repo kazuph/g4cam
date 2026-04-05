@@ -183,12 +183,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 needsLiteRTInit = false,
-                statusText = "LiteRT-LMエンジンを初期化中...\n(10〜30秒かかります)",
+                statusText = "LiteRT-LMエンジンを初期化中...\n(初回は30〜60秒かかります)",
                 showStatus = true
             )
             try {
-                val result = withTimeout(120_000) {
-                    inference.initializeLiteRT(downloader.getModelFile())
+                val result = withTimeout(180_000) {
+                    inference.initializeLiteRT(getApplication(), downloader.getModelFile())
                 }
                 handleModelStatus(result)
             } catch (e: Exception) {

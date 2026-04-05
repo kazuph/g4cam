@@ -42,12 +42,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -74,7 +76,7 @@ dependencies {
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
 
     // LiteRT-LM (fallback when AICore Preview unavailable)
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha01")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 
     // OkHttp for model download (fallback)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
