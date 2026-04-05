@@ -183,18 +183,41 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 needsLiteRTInit = false,
+                needsModelDownload = false,
                 statusText = "LiteRT-LMエンジンを初期化中...\n(初回は30〜60秒かかります)",
                 showStatus = true
             )
             try {
+                val modelFile = downloader.getModelFile()
+                Log.i(TAG, "Model file: ${modelFile.absolutePath}, exists=${modelFile.exists()}, size=${modelFile.length()}")
+
                 val result = withTimeout(180_000) {
-                    inference.initializeLiteRT(downloader.getModelFile())
+                    inference.initializeLiteRT(modelFile)
                 }
-                handleModelStatus(result)
+                Log.i(TAG, "initializeLiteRT result: $result")
+                when (result) {
+                    is ModelStatus.NeedsFallbackDownload -> {
+                        // File was incomplete/deleted, go to download screen
+                        _uiState.value = _uiState.value.copy(
+                            needsModelDownload = true,
+                            statusText = result.message
+                        )
+                        return@launch
+                    }
+                    is ModelStatus.Unavailable -> {
+                        // Both GPU and CPU failed - show error with details
+                        _uiState.value = _uiState.value.copy(
+                            statusText = result.message,
+                            modelUnavailable = true
+                        )
+                        return@launch
+                    }
+                    else -> handleModelStatus(result)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "LiteRT init timeout/error", e)
                 _uiState.value = _uiState.value.copy(
-                    statusText = "初期化タイムアウト: ${e.message}",
+                    statusText = "初期化エラー: ${e.message}",
                     modelUnavailable = true
                 )
             }
