@@ -89,11 +89,24 @@ class GemmaInference {
     suspend fun initializeLiteRT(modelFile: File): ModelStatus {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
+                // Verify file integrity
+                val fileSize = modelFile.length()
+                Log.i(TAG, "Model file size: $fileSize bytes (${fileSize / 1_000_000}MB)")
+                if (fileSize < 2_500_000_000L) {
+                    Log.e(TAG, "Model file appears incomplete ($fileSize bytes). Expected ~2.58GB")
+                    modelFile.delete()
+                    return@withContext ModelStatus.NeedsFallbackDownload(
+                        "モデルファイルが不完全です（${fileSize / 1_000_000}MB）\n再ダウンロードが必要です"
+                    )
+                }
+
                 Log.i(TAG, "Starting LiteRT-LM engine initialization (this may take 10-30s)...")
+                val cacheDir = modelFile.parentFile?.absolutePath ?: ""
                 val config = EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU,
-                    visionBackend = Backend.CPU
+                    visionBackend = Backend.CPU,
+                    cacheDir = cacheDir
                 )
                 val engine = Engine(config)
                 engine.initialize()

@@ -34,7 +34,8 @@ class ModelDownloader(private val context: Context) {
 
     fun getModelFile(): File = File(context.filesDir, MODEL_FILENAME)
 
-    fun isModelDownloaded(): Boolean = getModelFile().let { it.exists() && it.length() > 100_000_000 }
+    // Model is ~2.58GB. Only consider complete if > 2.5GB
+    fun isModelDownloaded(): Boolean = getModelFile().let { it.exists() && it.length() > 2_500_000_000L }
 
     fun download(): Flow<DownloadState> = flow {
         emit(DownloadState.Downloading(0f))
