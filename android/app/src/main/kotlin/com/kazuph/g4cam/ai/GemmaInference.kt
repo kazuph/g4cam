@@ -2,6 +2,7 @@ package com.kazuph.g4cam.ai
 
 import android.graphics.Bitmap
 import com.google.mlkit.genai.common.DownloadStatus
+import com.google.mlkit.genai.prompt.Candidate
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ImagePart
@@ -102,13 +103,34 @@ class GemmaInference {
             val request = generateContentRequest(ImagePart(scaledBitmap), TextPart(prompt)) {}
 
             val response = localModel.generateContent(request)
-            val responseText = response.candidates.firstOrNull()?.text ?: ""
+            val candidate = response.candidates.firstOrNull()
 
             if (scaledBitmap !== bitmap) scaledBitmap.recycle()
 
-            emit(InferenceState.Done(responseText))
+            if (candidate == null) {
+                emit(InferenceState.Done("🔒 セーフティフィルターにより応答がブロックされました。別の画像で試してみてください。"))
+                return@flow
+            }
+
+            val finishReason = candidate.finishReason
+            val responseText = candidate.text ?: ""
+
+            if (responseText.isEmpty()) {
+                emit(InferenceState.Done("🔒 応答が空でした。セーフティフィルターの可能性があります。再度お試しください。"))
+            } else if (finishReason == Candidate.FinishReason.MAX_TOKENS) {
+                emit(InferenceState.Done("$responseText\n(応答が途中で切れました)"))
+            } else {
+                emit(InferenceState.Done(responseText))
+            }
         } catch (e: Exception) {
-            emit(InferenceState.Error("Inference failed: ${e.message}"))
+            val msg = e.message ?: "Unknown error"
+            if (msg.contains("policy", ignoreCase = true) ||
+                msg.contains("safety", ignoreCase = true) ||
+                msg.contains("blocked", ignoreCase = true)) {
+                emit(InferenceState.Done("🔒 セーフティフィルターにより応答がブロックされました。別の画像で試してみてください。"))
+            } else {
+                emit(InferenceState.Error("推論エラー: $msg"))
+            }
         }
     }.flowOn(Dispatchers.IO)
 
