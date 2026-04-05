@@ -168,6 +168,20 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun switchToLiteRTFallback() {
+        _uiState.value = _uiState.value.copy(
+            modelUnavailable = false,
+            needsModelDownload = !downloader.isModelDownloaded()
+        )
+        if (downloader.isModelDownloaded()) {
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(statusText = "LiteRT-LMエンジンを初期化中...")
+                val result = inference.initializeLiteRT(downloader.getModelFile())
+                handleModelStatus(result)
+            }
+        }
+    }
+
     fun onCapturedFrame(bitmap: Bitmap) {
         val state = _uiState.value
         if (state.isAnalyzing || !state.isEngineReady) return

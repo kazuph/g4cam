@@ -49,7 +49,7 @@ fun G4CamApp(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Model unavailable screen
+    // Model unavailable screen - show fallback option
     if (uiState.modelUnavailable) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -63,17 +63,38 @@ fun G4CamApp(
                 Text(text = "⚠️", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Gemini Nanoが\nこのデバイスでは利用できません",
+                    text = "AICore Preview が利用できません",
                     color = Color.White,
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "AICore Developer Preview対応の\nデバイスが必要です\n\n${uiState.statusText}",
+                    text = uiState.statusText,
                     color = Color(0xFFAAAAAA),
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = { viewModel.switchToLiteRTFallback() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF0096FF)
+                    ),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Text(
+                        text = "LiteRT-LM版で試す",
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "モデルDLが必要（約2.6GB・Wi-Fi推奨）",
+                    color = Color(0xFF888888),
+                    fontSize = 12.sp
                 )
             }
         }
