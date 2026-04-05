@@ -24,7 +24,10 @@ sealed class InferenceState {
 
 class GemmaInference {
 
+    @Volatile
     private var engine: Engine? = null
+
+    @Volatile
     private var isInitialized = false
 
     suspend fun initialize(modelFile: File) {
@@ -34,14 +37,16 @@ class GemmaInference {
                 backend = Backend.CPU,
                 visionBackend = Backend.CPU
             )
-            engine = Engine(config)
-            engine!!.initialize()
+            val newEngine = Engine(config)
+            newEngine.initialize()
+            engine = newEngine
             isInitialized = true
         }
     }
 
     fun analyze(bitmap: Bitmap, prompt: String): Flow<InferenceState> = flow {
-        if (!isInitialized || engine == null) {
+        val localEngine = engine
+        if (!isInitialized || localEngine == null) {
             emit(InferenceState.Error("Engine not initialized"))
             return@flow
         }
@@ -49,27 +54,28 @@ class GemmaInference {
         emit(InferenceState.Loading)
 
         try {
-            val baos = ByteArrayOutputStream()
-            val scaledBitmap = scaleBitmap(bitmap, 512)
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
-            val imageBytes = baos.toByteArray()
+            val imageBytes = bitmapToJpegBytes(bitmap)
 
-            val conversation = engine!!.createConversation()
-
-            val message = Message.of(
-                Content.ImageBytes(imageBytes),
-                Content.Text(prompt)
-            )
-
-            val response = conversation.sendMessage(message)
-
-            emit(InferenceState.Done(response.toString()))
-
-            conversation.close()
+            localEngine.createConversation().use { conversation ->
+                val message = Message.of(
+                    Content.ImageBytes(imageBytes),
+                    Content.Text(prompt)
+                )
+                val response = conversation.sendMessage(message)
+                emit(InferenceState.Done(response.toString()))
+            }
         } catch (e: Exception) {
             emit(InferenceState.Error("Inference failed: ${e.message}"))
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
+        val scaled = scaleBitmap(bitmap, 512)
+        val baos = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+        if (scaled !== bitmap) scaled.recycle()
+        return baos.toByteArray()
+    }
 
     private fun scaleBitmap(bitmap: Bitmap, maxDim: Int): Bitmap {
         val w = bitmap.width
@@ -83,8 +89,8 @@ class GemmaInference {
     }
 
     fun release() {
+        isInitialized = false
         try { engine?.close() } catch (_: Exception) {}
         engine = null
-        isInitialized = false
     }
 }

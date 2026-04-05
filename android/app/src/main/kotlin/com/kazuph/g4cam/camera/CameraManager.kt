@@ -20,7 +20,6 @@ import androidx.lifecycle.LifecycleOwner
 class CameraController(private val context: Context) {
 
     private var imageCapture: ImageCapture? = null
-    private var previewView: PreviewView? = null
 
     fun createPreviewView(): PreviewView {
         return PreviewView(context).apply {
@@ -29,7 +28,6 @@ class CameraController(private val context: Context) {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            previewView = this
         }
     }
 
@@ -70,9 +68,17 @@ class CameraController(private val context: Context) {
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
                     val bitmap = image.toBitmap()
-                    val rotatedBitmap = rotateBitmap(bitmap, image.imageInfo.rotationDegrees)
+                    val degrees = image.imageInfo.rotationDegrees
                     image.close()
-                    onCaptured(rotatedBitmap)
+
+                    if (degrees == 0) {
+                        onCaptured(bitmap)
+                    } else {
+                        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+                        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                        bitmap.recycle()
+                        onCaptured(rotated)
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -80,12 +86,6 @@ class CameraController(private val context: Context) {
                 }
             }
         )
-    }
-
-    private fun rotateBitmap(bitmap: Bitmap, degrees: Int): Bitmap {
-        if (degrees == 0) return bitmap
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 }
 

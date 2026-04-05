@@ -1,73 +1,54 @@
 package com.kazuph.g4cam.ui
 
-import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kazuph.g4cam.ai.GemmaInference
-import com.kazuph.g4cam.ai.InferenceState
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kazuph.g4cam.camera.CameraController
 import com.kazuph.g4cam.camera.CameraPreview
 import com.kazuph.g4cam.model.DownloadState
-import com.kazuph.g4cam.model.ModelDownloader
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-
-private const val TAG = "G4Cam"
-private const val PROMPT = "絵文字1つ＋この画像の説明を1文で。文字が見えたら必ず読む。日本語で短く。"
+import kotlinx.coroutines.flow.filter
 
 @Composable
-fun G4CamApp(hasCameraPermission: Boolean) {
-    val context = LocalContext.current
-    val downloader = remember { ModelDownloader(context) }
-
-    var downloadState by remember {
-        mutableStateOf(
-            if (downloader.isModelDownloaded()) DownloadState.Completed
-            else DownloadState.Idle
-        )
-    }
-
-    val scope = rememberCoroutineScope()
+fun G4CamApp(
+    hasCameraPermission: Boolean,
+    viewModel: G4CamViewModel = viewModel()
+) {
+    val downloadState by viewModel.downloadState.collectAsState()
 
     if (downloadState !is DownloadState.Completed) {
         ModelDownloadScreen(
             downloadState = downloadState,
-            onStartDownload = {
-                scope.launch {
-                    downloader.download().collect { state ->
-                        downloadState = state
-                    }
-                }
-            }
+            onStartDownload = { viewModel.startDownload() }
         )
         return
     }
 
     if (!hasCameraPermission) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -79,108 +60,36 @@ fun G4CamApp(hasCameraPermission: Boolean) {
         return
     }
 
-    CameraScreen(
-        modelDownloader = downloader
-    )
+    CameraScreen(viewModel = viewModel)
 }
 
 @Composable
-private fun CameraScreen(
-    modelDownloader: ModelDownloader
-) {
+private fun CameraScreen(viewModel: G4CamViewModel) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
+    val uiState by viewModel.uiState.collectAsState()
 
-    val cameraController = remember { CameraController(context) }
-    val inference = remember { GemmaInference() }
+    val cameraController = androidx.compose.runtime.remember { CameraController(context) }
 
-    var isAnalyzing by remember { mutableStateOf(false) }
-    var resultText by remember { mutableStateOf("") }
-    var statusText by remember { mutableStateOf("準備完了") }
-    var showStatus by remember { mutableStateOf(true) }
-    var showFlash by remember { mutableStateOf(false) }
-    var showGlow by remember { mutableStateOf(false) }
-    var isEngineReady by remember { mutableStateOf(false) }
-
-    // Initialize engine
+    // Initialize engine once
     LaunchedEffect(Unit) {
-        statusText = "AIエンジンを初期化中..."
-        try {
-            inference.initialize(modelDownloader.getModelFile())
-            isEngineReady = true
-            statusText = "準備完了 - タップで解析"
-            delay(3000)
-            showStatus = false
-        } catch (e: Exception) {
-            Log.e(TAG, "Engine init failed", e)
-            statusText = "エンジン初期化エラー: ${e.message}"
-        }
+        viewModel.initializeEngine()
     }
 
-    // Cleanup
-    DisposableEffect(Unit) {
-        onDispose {
-            inference.release()
-        }
+    // Handle analysis requests (from auto mode or toggle)
+    LaunchedEffect(Unit) {
+        snapshotFlow { viewModel.requestAnalysis }
+            .filter { it }
+            .collect {
+                viewModel.consumeAnalysisRequest()
+                triggerAnalysis(cameraController, viewModel)
+            }
     }
 
     fun analyze() {
-        if (isAnalyzing || !isEngineReady) return
-        isAnalyzing = true
-
-        // Flash effect
-        scope.launch {
-            showFlash = true
-            delay(150)
-            showFlash = false
-        }
-
-        showGlow = true
-        showStatus = true
-        statusText = "解析中..."
-
-        cameraController.captureFrame(
-            onCaptured = { bitmap ->
-                scope.launch {
-                    inference.analyze(bitmap, PROMPT).collect { state ->
-                        when (state) {
-                            is InferenceState.Loading -> {
-                                statusText = "解析中..."
-                            }
-                            is InferenceState.Streaming -> {
-                                resultText = state.text
-                            }
-                            is InferenceState.Done -> {
-                                resultText = state.text
-                                showGlow = false
-                                isAnalyzing = false
-                                statusText = "準備完了 - タップで解析"
-                                delay(3000)
-                                showStatus = false
-                            }
-                            is InferenceState.Error -> {
-                                Log.e(TAG, "Inference error: ${state.message}")
-                                resultText = "エラー: ${state.message}"
-                                showGlow = false
-                                isAnalyzing = false
-                                statusText = "エラー"
-                            }
-                            is InferenceState.Idle -> {}
-                        }
-                    }
-                }
-            },
-            onError = { error ->
-                Log.e(TAG, "Capture error: $error")
-                resultText = "キャプチャエラー: $error"
-                showGlow = false
-                isAnalyzing = false
-            }
-        )
+        triggerAnalysis(cameraController, viewModel)
     }
 
-    // Main UI
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -196,33 +105,98 @@ private fun CameraScreen(
         )
 
         // AI Glow Effect
-        AiGlowEffect(isActive = showGlow)
+        AiGlowEffect(isActive = uiState.showGlow)
 
         // Flash Effect
         AnimatedVisibility(
-            visible = showFlash,
+            visible = uiState.showFlash,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             FlashEffect(isActive = true)
         }
 
-        // Top: Status
+        // Top: Status + Countdown
         AnimatedVisibility(
-            visible = showStatus,
+            visible = uiState.showStatus,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopStart)
         ) {
             StatusBar(
-                text = statusText,
-                isLoading = isAnalyzing
+                text = uiState.statusText,
+                isLoading = uiState.isAnalyzing
             )
         }
 
-        // Bottom: Result
+        // Top right: Countdown
+        if (uiState.autoMode && uiState.countdown > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .background(Color(0x99000000), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "${uiState.countdown}s",
+                    color = Color.White,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // Bottom: Auto mode toggle + Result
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            ResultOverlay(text = resultText)
+            // Result text
+            ResultOverlay(text = uiState.resultText)
+
+            // Auto mode button (above result)
+            if (uiState.isEngineReady) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(bottom = 8.dp)
+                ) {
+                    AutoModeButton(
+                        isAutoMode = uiState.autoMode,
+                        onClick = { viewModel.toggleAutoMode() }
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun AutoModeButton(
+    isAutoMode: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clickable { onClick() }
+            .background(
+                if (isAutoMode) Color(0xCCFF3C3C) else Color(0xCC0096FF),
+                RoundedCornerShape(22.dp)
+            )
+            .padding(horizontal = 24.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = if (isAutoMode) "⏹ 停止" else "▶ 開始",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun triggerAnalysis(
+    cameraController: CameraController,
+    viewModel: G4CamViewModel
+) {
+    cameraController.captureFrame(
+        onCaptured = { bitmap -> viewModel.onCapturedFrame(bitmap) },
+        onError = { error -> viewModel.onCaptureError(error) }
+    )
 }

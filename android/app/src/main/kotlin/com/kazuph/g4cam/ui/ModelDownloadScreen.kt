@@ -114,9 +114,10 @@ fun ModelDownloadScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    val downloadedMB = (downloadState.progress * 2580).toInt()
+                    val totalMB = if (downloadState.totalBytes > 0) downloadState.totalBytes / 1_000_000 else 2580L
+                    val downloadedMB = downloadState.downloadedBytes / 1_000_000
                     Text(
-                        text = "${downloadedMB}MB / 2,580MB",
+                        text = "${downloadedMB}MB / ${totalMB}MB",
                         color = Color(0xFF888888),
                         fontSize = 12.sp
                     )
