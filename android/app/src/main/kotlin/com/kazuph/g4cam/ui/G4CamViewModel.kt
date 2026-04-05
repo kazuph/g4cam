@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.util.Locale
 
 private const val TAG = "G4Cam"
@@ -32,6 +33,8 @@ data class CameraUiState(
     val autoMode: Boolean = false,
     val countdown: Int = 0,
     val modelUnavailable: Boolean = false,
+    val needsModelDownload: Boolean = false,
+    val isDownloading: Boolean = false,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,7 +65,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(statusText = "AIモデルを確認中...")
             try {
-                val modelStatus = inference.initialize()
+                val modelStatus = withTimeout(30_000) {
+                    inference.initialize()
+                }
                 when (modelStatus) {
                     is ModelStatus.Ready -> {
                         _uiState.value = _uiState.value.copy(
@@ -72,30 +77,11 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         scheduleHideStatus()
                     }
                     is ModelStatus.Downloading -> {
-                        _uiState.value = _uiState.value.copy(statusText = "モデルをダウンロード中...")
-                        inference.downloadModel().collect { status ->
-                            when (status) {
-                                is ModelStatus.DownloadProgress -> {
-                                    _uiState.value = _uiState.value.copy(
-                                        statusText = "モデルDL中..."
-                                    )
-                                }
-                                is ModelStatus.Ready -> {
-                                    _uiState.value = _uiState.value.copy(
-                                        isEngineReady = true,
-                                        statusText = "準備完了 - タップで解析"
-                                    )
-                                    scheduleHideStatus()
-                                }
-                                is ModelStatus.Unavailable -> {
-                                    _uiState.value = _uiState.value.copy(
-                                        statusText = status.message,
-                                        modelUnavailable = true
-                                    )
-                                }
-                                else -> {}
-                            }
-                        }
+                        // Do NOT auto-download! Ask user first.
+                        _uiState.value = _uiState.value.copy(
+                            needsModelDownload = true,
+                            statusText = "モデルのDLが必要です"
+                        )
                     }
                     is ModelStatus.Unavailable -> {
                         _uiState.value = _uiState.value.copy(
@@ -110,6 +96,51 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     statusText = "初期化エラー: ${e.message}",
                     modelUnavailable = true
+                )
+            }
+        }
+    }
+
+    fun startModelDownload() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isDownloading = true,
+                needsModelDownload = false,
+                statusText = "モデルをダウンロード中..."
+            )
+            try {
+                inference.downloadModel().collect { status ->
+                    when (status) {
+                        is ModelStatus.DownloadProgress -> {
+                            val mb = status.bytesDownloaded / 1_000_000
+                            _uiState.value = _uiState.value.copy(
+                                statusText = "モデルDL中... ${mb}MB"
+                            )
+                        }
+                        is ModelStatus.Ready -> {
+                            _uiState.value = _uiState.value.copy(
+                                isEngineReady = true,
+                                isDownloading = false,
+                                statusText = "準備完了 - タップで解析"
+                            )
+                            scheduleHideStatus()
+                        }
+                        is ModelStatus.Unavailable -> {
+                            _uiState.value = _uiState.value.copy(
+                                statusText = status.message,
+                                isDownloading = false,
+                                modelUnavailable = true
+                            )
+                        }
+                        else -> {}
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                _uiState.value = _uiState.value.copy(
+                    statusText = "DLエラー: ${e.message}",
+                    isDownloading = false,
+                    needsModelDownload = true
                 )
             }
         }

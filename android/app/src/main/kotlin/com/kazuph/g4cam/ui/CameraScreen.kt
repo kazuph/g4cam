@@ -10,10 +10,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,11 +70,68 @@ fun G4CamApp(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "AICore Developer Preview対応の\nデバイスが必要です",
+                    text = "AICore Developer Preview対応の\nデバイスが必要です\n\n${uiState.statusText}",
                     color = Color(0xFFAAAAAA),
                     fontSize = 14.sp,
                     textAlign = TextAlign.Center
                 )
+            }
+        }
+        return
+    }
+
+    // Model needs download - ask user first
+    if (uiState.needsModelDownload || uiState.isDownloading) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(text = "🤖", fontSize = 64.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "Gemma 4 E2B",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (uiState.isDownloading) {
+                    CircularProgressIndicator(color = Color(0xFF0096FF))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = uiState.statusText,
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                } else {
+                    Text(
+                        text = "AIモデルのダウンロードが必要です\nWi-Fi接続を推奨します",
+                        color = Color(0xFFCCCCCC),
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { viewModel.startModelDownload() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0096FF)
+                        ),
+                        shape = RoundedCornerShape(22.dp)
+                    ) {
+                        Text(
+                            text = "ダウンロード開始",
+                            fontSize = 16.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                }
             }
         }
         return
@@ -98,6 +161,9 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
     val uiState by viewModel.uiState.collectAsState()
 
     val cameraController = remember { CameraController(context) }
+
+    // Status bar insets to avoid overlap
+    val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
 
     LaunchedEffect(Unit) {
         viewModel.initializeEngine()
@@ -139,11 +205,14 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             FlashEffect(isActive = true)
         }
 
+        // Top: Status - with status bar padding to avoid overlap
         AnimatedVisibility(
             visible = uiState.showStatus,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopStart)
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = statusBarPadding.calculateTopPadding())
         ) {
             StatusBar(
                 text = uiState.statusText,
@@ -151,11 +220,15 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             )
         }
 
+        // Top right: Countdown - with status bar padding
         if (uiState.autoMode && uiState.countdown > 0) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(12.dp)
+                    .padding(
+                        top = statusBarPadding.calculateTopPadding() + 12.dp,
+                        end = 12.dp
+                    )
                     .background(Color(0x99000000), RoundedCornerShape(16.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
@@ -167,6 +240,7 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             }
         }
 
+        // Bottom: Auto mode toggle + Result
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
             ResultOverlay(text = uiState.resultText)
 
