@@ -38,6 +38,7 @@ data class CameraUiState(
     val modelUnavailable: Boolean = false,
     val needsModelDownload: Boolean = false,
     val needsLiteRTInit: Boolean = false,
+    val isLiteRTInitializing: Boolean = false,
     val isDownloading: Boolean = false,
     val activeBackend: InferenceBackend? = null,
 )
@@ -184,6 +185,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(
                 needsLiteRTInit = false,
                 needsModelDownload = false,
+                isLiteRTInitializing = true,
                 statusText = "LiteRT-LMエンジンを初期化中...\n(初回は30〜60秒かかります)",
                 showStatus = true
             )
@@ -195,9 +197,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     inference.initializeLiteRT(modelFile)
                 }
                 Log.i(TAG, "initializeLiteRT result: $result")
+                _uiState.value = _uiState.value.copy(isLiteRTInitializing = false)
                 when (result) {
                     is ModelStatus.NeedsFallbackDownload -> {
-                        // File was incomplete/deleted, go to download screen
                         _uiState.value = _uiState.value.copy(
                             needsModelDownload = true,
                             statusText = result.message
@@ -205,7 +207,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                     is ModelStatus.Unavailable -> {
-                        // Both GPU and CPU failed - show error with details
                         _uiState.value = _uiState.value.copy(
                             statusText = result.message,
                             modelUnavailable = true
@@ -217,6 +218,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TAG, "LiteRT init timeout/error", e)
                 _uiState.value = _uiState.value.copy(
+                    isLiteRTInitializing = false,
                     statusText = "初期化エラー: ${e.message}",
                     modelUnavailable = true
                 )

@@ -204,6 +204,34 @@ fun G4CamApp(
         return
     }
 
+    // LiteRT-LM is initializing - show spinner, block camera screen
+    if (uiState.isLiteRTInitializing) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                CircularProgressIndicator(
+                    color = Color(0xFF00CC66),
+                    modifier = Modifier.padding(16.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = uiState.statusText,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 24.sp
+                )
+            }
+        }
+        return
+    }
+
     if (!hasCameraPermission) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
