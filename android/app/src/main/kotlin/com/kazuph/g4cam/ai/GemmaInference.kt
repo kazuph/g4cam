@@ -3,9 +3,13 @@ package com.kazuph.g4cam.ai
 import android.graphics.Bitmap
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.prompt.Candidate
+import com.google.mlkit.genai.prompt.GenerationConfig
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ImagePart
+import com.google.mlkit.genai.prompt.ModelConfig
+import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +43,15 @@ class GemmaInference {
     private var isInitialized = false
 
     suspend fun initialize(): ModelStatus {
-        val generativeModel = Generation.getClient()
+        // Use E2B (FAST) model for speed - 3x faster than E4B (FULL)
+        val config = GenerationConfig.Builder().apply {
+            modelConfig = ModelConfig.Builder().apply {
+                preference = ModelPreference.FAST       // E2B = 2 billion params
+                releaseStage = ModelReleaseStage.PREVIEW // AICore Developer Preview
+            }.build()
+        }.build()
+
+        val generativeModel = Generation.getClient(config)
         model = generativeModel
 
         // Check if model is available
