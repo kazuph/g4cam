@@ -12,3 +12,4 @@ android/*.iml
 android/app/*.iml
 *.apk
 *.aab
+android/app/keystore/

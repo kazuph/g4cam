@@ -14,11 +14,25 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("keystore/release.jks")
+            storePassword = "g4cam2026"
+            keyAlias = "g4cam"
+            keyPassword = "g4cam2026"
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
