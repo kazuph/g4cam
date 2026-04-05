@@ -8,8 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kazuph.g4cam.ai.GemmaInference
 import com.kazuph.g4cam.ai.InferenceState
-import com.kazuph.g4cam.model.DownloadState
-import com.kazuph.g4cam.model.ModelDownloader
+import com.kazuph.g4cam.ai.ModelStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +31,7 @@ data class CameraUiState(
     val showGlow: Boolean = false,
     val autoMode: Boolean = false,
     val countdown: Int = 0,
+    val modelUnavailable: Boolean = false,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,10 +39,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(CameraUiState())
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
-    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
-    val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
-
-    val downloader = ModelDownloader(application)
     val inference = GemmaInference()
 
     private var tts: TextToSpeech? = null
@@ -50,16 +46,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private var autoJob: Job? = null
     private var statusHideJob: Job? = null
 
-    // Past responses for variety (like web version)
     private val history = mutableListOf<String>()
 
     init {
-        // Check if model already downloaded
-        if (downloader.isModelDownloaded()) {
-            _downloadState.value = DownloadState.Completed
-        }
-
-        // Initialize TTS
         tts = TextToSpeech(application) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.JAPANESE
@@ -69,28 +58,58 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startDownload() {
-        viewModelScope.launch {
-            downloader.download().collect { state ->
-                _downloadState.value = state
-            }
-        }
-    }
-
     fun initializeEngine() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(statusText = "AIエンジンを初期化中...")
+            _uiState.value = _uiState.value.copy(statusText = "AIモデルを確認中...")
             try {
-                inference.initialize(downloader.getModelFile())
-                _uiState.value = _uiState.value.copy(
-                    isEngineReady = true,
-                    statusText = "準備完了 - タップで解析"
-                )
-                scheduleHideStatus()
+                val modelStatus = inference.initialize()
+                when (modelStatus) {
+                    is ModelStatus.Ready -> {
+                        _uiState.value = _uiState.value.copy(
+                            isEngineReady = true,
+                            statusText = "準備完了 - タップで解析"
+                        )
+                        scheduleHideStatus()
+                    }
+                    is ModelStatus.Downloading -> {
+                        _uiState.value = _uiState.value.copy(statusText = "モデルをダウンロード中...")
+                        inference.downloadModel().collect { status ->
+                            when (status) {
+                                is ModelStatus.DownloadProgress -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        statusText = "モデルDL中..."
+                                    )
+                                }
+                                is ModelStatus.Ready -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        isEngineReady = true,
+                                        statusText = "準備完了 - タップで解析"
+                                    )
+                                    scheduleHideStatus()
+                                }
+                                is ModelStatus.Unavailable -> {
+                                    _uiState.value = _uiState.value.copy(
+                                        statusText = status.message,
+                                        modelUnavailable = true
+                                    )
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+                    is ModelStatus.Unavailable -> {
+                        _uiState.value = _uiState.value.copy(
+                            statusText = modelStatus.message,
+                            modelUnavailable = true
+                        )
+                    }
+                    else -> {}
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Engine init failed", e)
                 _uiState.value = _uiState.value.copy(
-                    statusText = "エンジン初期化エラー: ${e.message}"
+                    statusText = "初期化エラー: ${e.message}",
+                    modelUnavailable = true
                 )
             }
         }
@@ -107,14 +126,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             statusText = "解析中..."
         )
 
-        // Flash effect
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(showFlash = true)
             delay(150)
             _uiState.value = _uiState.value.copy(showFlash = false)
         }
 
-        // Build prompt with history for variety
         val promptWithHistory = buildPrompt()
 
         viewModelScope.launch {
@@ -131,23 +148,11 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             isAnalyzing = false,
                             statusText = if (_uiState.value.autoMode) "オート解析中" else "準備完了 - タップで解析"
                         )
-
-                        // Save to history
                         history.add(inferenceState.text)
                         if (history.size > 3) history.removeAt(0)
-
-                        // TTS
                         speak(inferenceState.text)
-
-                        // Recycle bitmap
                         bitmap.recycle()
-
-                        // Auto mode: start countdown
-                        if (_uiState.value.autoMode) {
-                            startCountdown()
-                        } else {
-                            scheduleHideStatus()
-                        }
+                        if (_uiState.value.autoMode) startCountdown() else scheduleHideStatus()
                     }
                     is InferenceState.Error -> {
                         Log.e(TAG, "Inference error: ${inferenceState.message}")
@@ -182,9 +187,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             statusText = if (newAutoMode) "オート解析中" else "準備完了 - タップで解析",
             countdown = 0
         )
-
         if (newAutoMode) {
-            // Trigger immediately
             requestAnalysis = true
         } else {
             autoJob?.cancel()
@@ -194,7 +197,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Flag to request analysis from UI (since we can't hold camera reference here)
     var requestAnalysis = false
         private set
 

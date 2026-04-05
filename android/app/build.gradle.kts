@@ -14,10 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
-    }
+}
 
     signingConfigs {
         create("release") {
@@ -73,14 +70,11 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraVersion")
     implementation("androidx.camera:camera-view:$cameraVersion")
 
-    // LiteRT-LM (Gemma on-device inference)
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha01")
+    // ML Kit GenAI Prompt API (Gemini Nano / Gemma 4 via AICore)
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-
-    // OkHttp for model download
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Core
     implementation("androidx.core:core-ktx:1.15.0")

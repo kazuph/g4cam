@@ -6,8 +6,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -15,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,13 +27,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kazuph.g4cam.camera.CameraController
 import com.kazuph.g4cam.camera.CameraPreview
-import com.kazuph.g4cam.model.DownloadState
 import kotlinx.coroutines.flow.filter
 
 @Composable
@@ -36,13 +41,36 @@ fun G4CamApp(
     hasCameraPermission: Boolean,
     viewModel: G4CamViewModel = viewModel()
 ) {
-    val downloadState by viewModel.downloadState.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
-    if (downloadState !is DownloadState.Completed) {
-        ModelDownloadScreen(
-            downloadState = downloadState,
-            onStartDownload = { viewModel.startDownload() }
-        )
+    // Model unavailable screen
+    if (uiState.modelUnavailable) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(text = "⚠️", fontSize = 64.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Gemini Nanoが\nこのデバイスでは利用できません",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "AICore Developer Preview対応の\nデバイスが必要です",
+                    color = Color(0xFFAAAAAA),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
         return
     }
 
@@ -69,14 +97,12 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
 
-    val cameraController = androidx.compose.runtime.remember { CameraController(context) }
+    val cameraController = remember { CameraController(context) }
 
-    // Initialize engine once
     LaunchedEffect(Unit) {
         viewModel.initializeEngine()
     }
 
-    // Handle analysis requests (from auto mode or toggle)
     LaunchedEffect(Unit) {
         snapshotFlow { viewModel.requestAnalysis }
             .filter { it }
@@ -97,17 +123,14 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 detectTapGestures { analyze() }
             }
     ) {
-        // Camera preview
         CameraPreview(
             modifier = Modifier.fillMaxSize(),
             cameraController = cameraController,
             lifecycleOwner = lifecycleOwner
         )
 
-        // AI Glow Effect
         AiGlowEffect(isActive = uiState.showGlow)
 
-        // Flash Effect
         AnimatedVisibility(
             visible = uiState.showFlash,
             enter = fadeIn(),
@@ -116,7 +139,6 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             FlashEffect(isActive = true)
         }
 
-        // Top: Status + Countdown
         AnimatedVisibility(
             visible = uiState.showStatus,
             enter = fadeIn(),
@@ -129,7 +151,6 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             )
         }
 
-        // Top right: Countdown
         if (uiState.autoMode && uiState.countdown > 0) {
             Box(
                 modifier = Modifier
@@ -146,12 +167,9 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             }
         }
 
-        // Bottom: Auto mode toggle + Result
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            // Result text
             ResultOverlay(text = uiState.resultText)
 
-            // Auto mode button (above result)
             if (uiState.isEngineReady) {
                 Box(
                     modifier = Modifier
