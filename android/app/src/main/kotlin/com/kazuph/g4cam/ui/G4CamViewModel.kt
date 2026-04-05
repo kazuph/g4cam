@@ -7,8 +7,11 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kazuph.g4cam.ai.GemmaInference
+import com.kazuph.g4cam.ai.InferenceBackend
 import com.kazuph.g4cam.ai.InferenceState
 import com.kazuph.g4cam.ai.ModelStatus
+import com.kazuph.g4cam.model.DownloadState
+import com.kazuph.g4cam.model.ModelDownloader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,7 @@ data class CameraUiState(
     val modelUnavailable: Boolean = false,
     val needsModelDownload: Boolean = false,
     val isDownloading: Boolean = false,
+    val activeBackend: InferenceBackend? = null,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,6 +47,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
     val inference = GemmaInference()
+    private val downloader = ModelDownloader(application)
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -68,29 +73,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 val modelStatus = withTimeout(30_000) {
                     inference.initialize()
                 }
-                when (modelStatus) {
-                    is ModelStatus.Ready -> {
-                        _uiState.value = _uiState.value.copy(
-                            isEngineReady = true,
-                            statusText = "準備完了 - タップで解析"
-                        )
-                        scheduleHideStatus()
-                    }
-                    is ModelStatus.Downloading -> {
-                        // Do NOT auto-download! Ask user first.
-                        _uiState.value = _uiState.value.copy(
-                            needsModelDownload = true,
-                            statusText = "モデルのDLが必要です"
-                        )
-                    }
-                    is ModelStatus.Unavailable -> {
-                        _uiState.value = _uiState.value.copy(
-                            statusText = modelStatus.message,
-                            modelUnavailable = true
-                        )
-                    }
-                    else -> {}
-                }
+                handleModelStatus(modelStatus)
             } catch (e: Exception) {
                 Log.e(TAG, "Engine init failed", e)
                 _uiState.value = _uiState.value.copy(
@@ -98,6 +81,44 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     modelUnavailable = true
                 )
             }
+        }
+    }
+
+    private fun handleModelStatus(status: ModelStatus) {
+        when (status) {
+            is ModelStatus.Ready -> {
+                _uiState.value = _uiState.value.copy(
+                    isEngineReady = true,
+                    activeBackend = status.backend,
+                    statusText = when (status.backend) {
+                        InferenceBackend.AICORE -> "準備完了 (AICore E2B) - タップで解析"
+                        InferenceBackend.LITERT_LM -> "準備完了 (LiteRT-LM) - タップで解析"
+                    }
+                )
+                scheduleHideStatus()
+            }
+            is ModelStatus.NeedsFallbackDownload -> {
+                if (downloader.isModelDownloaded()) {
+                    // Model already downloaded, initialize LiteRT-LM directly
+                    viewModelScope.launch {
+                        _uiState.value = _uiState.value.copy(statusText = "LiteRT-LMエンジンを初期化中...")
+                        val result = inference.initializeLiteRT(downloader.getModelFile())
+                        handleModelStatus(result)
+                    }
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        needsModelDownload = true,
+                        statusText = status.message
+                    )
+                }
+            }
+            is ModelStatus.Unavailable -> {
+                _uiState.value = _uiState.value.copy(
+                    statusText = status.message,
+                    modelUnavailable = true
+                )
+            }
+            else -> {}
         }
     }
 
@@ -109,30 +130,31 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 statusText = "モデルをダウンロード中..."
             )
             try {
-                inference.downloadModel().collect { status ->
-                    when (status) {
-                        is ModelStatus.DownloadProgress -> {
-                            val mb = status.bytesDownloaded / 1_000_000
+                downloader.download().collect { state ->
+                    when (state) {
+                        is DownloadState.Downloading -> {
+                            val mb = state.downloadedBytes / 1_000_000
+                            val totalMb = if (state.totalBytes > 0) state.totalBytes / 1_000_000 else 0L
                             _uiState.value = _uiState.value.copy(
-                                statusText = "モデルDL中... ${mb}MB"
+                                statusText = if (totalMb > 0) "DL中... ${mb}MB / ${totalMb}MB" else "DL中... ${mb}MB"
                             )
                         }
-                        is ModelStatus.Ready -> {
+                        is DownloadState.Completed -> {
                             _uiState.value = _uiState.value.copy(
-                                isEngineReady = true,
                                 isDownloading = false,
-                                statusText = "準備完了 - タップで解析"
+                                statusText = "LiteRT-LMエンジンを初期化中..."
                             )
-                            scheduleHideStatus()
+                            val result = inference.initializeLiteRT(downloader.getModelFile())
+                            handleModelStatus(result)
                         }
-                        is ModelStatus.Unavailable -> {
+                        is DownloadState.Error -> {
                             _uiState.value = _uiState.value.copy(
-                                statusText = status.message,
+                                statusText = "DLエラー: ${state.message}",
                                 isDownloading = false,
-                                modelUnavailable = true
+                                needsModelDownload = true
                             )
                         }
-                        else -> {}
+                        is DownloadState.Idle -> {}
                     }
                 }
             } catch (e: Exception) {
@@ -173,11 +195,16 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(resultText = inferenceState.text)
                     }
                     is InferenceState.Done -> {
+                        val backendLabel = when (_uiState.value.activeBackend) {
+                            InferenceBackend.AICORE -> "AICore"
+                            InferenceBackend.LITERT_LM -> "LiteRT"
+                            null -> ""
+                        }
                         _uiState.value = _uiState.value.copy(
                             resultText = inferenceState.text,
                             showGlow = false,
                             isAnalyzing = false,
-                            statusText = if (_uiState.value.autoMode) "オート解析中" else "準備完了 - タップで解析"
+                            statusText = if (_uiState.value.autoMode) "オート ($backendLabel)" else "準備完了 ($backendLabel)"
                         )
                         history.add(inferenceState.text)
                         if (history.size > 3) history.removeAt(0)
@@ -202,7 +229,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onCaptureError(error: String) {
-        Log.e(TAG, "Capture error: $error")
         _uiState.value = _uiState.value.copy(
             resultText = "キャプチャエラー: $error",
             showGlow = false,
@@ -215,7 +241,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             autoMode = newAutoMode,
             showStatus = true,
-            statusText = if (newAutoMode) "オート解析中" else "準備完了 - タップで解析",
+            statusText = if (newAutoMode) "オート解析中" else "準備完了",
             countdown = 0
         )
         if (newAutoMode) {

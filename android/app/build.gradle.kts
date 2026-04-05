@@ -70,8 +70,14 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraVersion")
     implementation("androidx.camera:camera-view:$cameraVersion")
 
-    // ML Kit GenAI Prompt API (Gemini Nano / Gemma 4 via AICore)
+    // ML Kit GenAI Prompt API (Gemini Nano / Gemma 4 via AICore) - primary
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
+
+    // LiteRT-LM (fallback when AICore Preview unavailable)
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha01")
+
+    // OkHttp for model download (fallback)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

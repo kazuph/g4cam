@@ -5,9 +5,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="true" />
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Force remove INTERNET - ML Kit/Play Services auto-adds these but we need fully offline -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- INTERNET needed for LiteRT-LM fallback model download from HuggingFace -->
+    <!-- When AICore is available, inference is fully on-device (no network) -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Explicitly remove dangerous permissions that libraries might request -->
     <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" />
