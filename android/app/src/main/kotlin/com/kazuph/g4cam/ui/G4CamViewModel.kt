@@ -188,7 +188,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             )
             try {
                 val result = withTimeout(180_000) {
-                    inference.initializeLiteRT(getApplication(), downloader.getModelFile())
+                    inference.initializeLiteRT(downloader.getModelFile())
                 }
                 handleModelStatus(result)
             } catch (e: Exception) {

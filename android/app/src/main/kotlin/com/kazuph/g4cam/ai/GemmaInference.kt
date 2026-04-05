@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
@@ -86,7 +87,7 @@ class GemmaInference {
         )
     }
 
-    suspend fun initializeLiteRT(context: android.content.Context, modelFile: File): ModelStatus {
+    suspend fun initializeLiteRT(modelFile: File): ModelStatus {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             // Verify file integrity
             val fileSize = modelFile.length()
@@ -99,8 +100,6 @@ class GemmaInference {
                 )
             }
 
-            val cacheDirPath = context.cacheDir.path
-
             // Try GPU first (676MB RAM) - much lighter than CPU (1733MB)
             try {
                 Log.i(TAG, "Trying GPU backend (uses ~676MB RAM)...")
@@ -108,7 +107,6 @@ class GemmaInference {
                     modelPath = modelFile.absolutePath,
                     backend = Backend.GPU(),
                     visionBackend = Backend.GPU(),
-                    cacheDir = cacheDirPath
                 )
                 val engine = Engine(gpuConfig)
                 engine.initialize()
@@ -128,7 +126,6 @@ class GemmaInference {
                     modelPath = modelFile.absolutePath,
                     backend = Backend.CPU(),
                     visionBackend = Backend.CPU(),
-                    cacheDir = cacheDirPath
                 )
                 val engine = Engine(cpuConfig)
                 engine.initialize()
@@ -205,11 +202,11 @@ class GemmaInference {
         if (scaledBitmap !== bitmap) scaledBitmap.recycle()
 
         localEngine.createConversation().use { conversation ->
-            val message = Message.of(
+            val contents = Contents.of(
                 Content.ImageBytes(imageBytes),
                 Content.Text(prompt)
             )
-            val response = conversation.sendMessage(message)
+            val response = conversation.sendMessage(contents)
             return InferenceState.Done(response.toString())
         }
     }
