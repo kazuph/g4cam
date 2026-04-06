@@ -499,8 +499,8 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
             }
         }
 
-        // === BOTTOM: Result text (large, accessible) ===
-        Box(
+        // === BOTTOM: Backend info + Result text ===
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -509,8 +509,29 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                         colors = listOf(Color.Transparent, Color(0xE6000000))
                     )
                 )
-                .padding(horizontal = 20.dp, vertical = 32.dp)
+                .padding(horizontal = 20.dp, vertical = 24.dp)
         ) {
+            // Backend name + switch button row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = uiState.backendDisplayName,
+                    color = Color(0xFFAAAAAA),
+                    fontSize = 13.sp
+                )
+                Box(
+                    modifier = Modifier
+                        .clickable { viewModel.switchBackend() }
+                        .background(Color(0x66FFFFFF), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("モデル切替", color = Color.White, fontSize = 13.sp)
+                }
+            }
+
             if (uiState.resultText.isNotEmpty()) {
                 Text(
                     text = uiState.resultText,
