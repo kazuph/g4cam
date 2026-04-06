@@ -316,6 +316,57 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         // Keep status visible (show duration) until next analysis
                         if (_uiState.value.autoMode) startCountdown()
                     }
+                    is InferenceState.SafetyBlocked -> {
+                        Log.w(TAG, "AICore safety blocked, trying LiteRT-LM fallback...")
+                        if (inference.hasLiteRTFallback()) {
+                            _uiState.value = _uiState.value.copy(
+                                statusText = "セーフティブロック → LiteRT-LMで再試行中..."
+                            )
+                            // Re-analyze with LiteRT-LM
+                            // Need a copy of bitmap since we haven't recycled yet
+                            inference.analyzeWithFallback(bitmap, promptWithHistory).collect { fallbackState ->
+                                when (fallbackState) {
+                                    is InferenceState.Done -> {
+                                        val fbDuration = System.currentTimeMillis() - analysisStartTime
+                                        _uiState.value = _uiState.value.copy(
+                                            resultText = fallbackState.text,
+                                            showGlow = false,
+                                            isAnalyzing = false,
+                                            lastDurationMs = fbDuration,
+                                            statusText = "${fbDuration / 1000}.${(fbDuration % 1000) / 100}秒 (LiteRT fallback)"
+                                        )
+                                        _historyItems.value = _historyItems.value + HistoryItem(
+                                            thumbnail = thumbnail,
+                                            analyzedImage = analyzedImage,
+                                            text = fallbackState.text,
+                                            durationMs = fbDuration
+                                        )
+                                        speak(fallbackState.text)
+                                        bitmap.recycle()
+                                        if (_uiState.value.autoMode) startCountdown()
+                                    }
+                                    is InferenceState.Error -> {
+                                        _uiState.value = _uiState.value.copy(
+                                            resultText = "フォールバックも失敗: ${fallbackState.message}",
+                                            showGlow = false,
+                                            isAnalyzing = false,
+                                            statusText = "エラー"
+                                        )
+                                        bitmap.recycle()
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        } else {
+                            _uiState.value = _uiState.value.copy(
+                                resultText = "🔒 セーフティフィルターによりブロックされました",
+                                showGlow = false,
+                                isAnalyzing = false,
+                                statusText = "ブロック (フォールバックなし)"
+                            )
+                            bitmap.recycle()
+                        }
+                    }
                     is InferenceState.Error -> {
                         Log.e(TAG, "Inference error: ${inferenceState.message}")
                         _uiState.value = _uiState.value.copy(

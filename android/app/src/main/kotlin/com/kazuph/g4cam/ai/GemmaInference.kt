@@ -33,6 +33,7 @@ sealed class InferenceState {
     data object Loading : InferenceState()
     data class Streaming(val text: String) : InferenceState()
     data class Done(val text: String) : InferenceState()
+    data object SafetyBlocked : InferenceState()
     data class Error(val message: String) : InferenceState()
 }
 
@@ -161,7 +162,7 @@ class GemmaInference {
             if (msg.contains("policy", ignoreCase = true) ||
                 msg.contains("safety", ignoreCase = true) ||
                 msg.contains("blocked", ignoreCase = true)) {
-                emit(InferenceState.Done("🔒 セーフティフィルターにより応答がブロックされました。別の画像で試してみてください。"))
+                emit(InferenceState.SafetyBlocked)
             } else {
                 emit(InferenceState.Error("推論エラー: $msg"))
             }
@@ -179,12 +180,12 @@ class GemmaInference {
         if (scaledBitmap !== bitmap) scaledBitmap.recycle()
 
         if (candidate == null) {
-            return InferenceState.Done("🔒 セーフティフィルターにより応答がブロックされました。別の画像で試してみてください。")
+            return InferenceState.SafetyBlocked
         }
 
         val responseText = candidate.text ?: ""
         return if (responseText.isEmpty()) {
-            InferenceState.Done("🔒 応答が空でした。再度お試しください。")
+            InferenceState.SafetyBlocked
         } else if (candidate.finishReason == Candidate.FinishReason.MAX_TOKENS) {
             InferenceState.Done("$responseText\n(応答が途中で切れました)")
         } else {
@@ -218,6 +219,22 @@ class GemmaInference {
         val scale = maxDim.toFloat() / maxOf(w, h)
         return Bitmap.createScaledBitmap(bitmap, (w * scale).toInt(), (h * scale).toInt(), true)
     }
+
+    fun hasLiteRTFallback(): Boolean = litertEngine != null
+
+    fun analyzeWithFallback(bitmap: Bitmap, prompt: String): Flow<InferenceState> = flow {
+        if (litertEngine == null) {
+            emit(InferenceState.Error("LiteRT-LMフォールバックが利用できません"))
+            return@flow
+        }
+        emit(InferenceState.Loading)
+        try {
+            val result = analyzeWithLiteRT(bitmap, prompt)
+            emit(result)
+        } catch (e: Exception) {
+            emit(InferenceState.Error("フォールバック推論エラー: ${e.message}"))
+        }
+    }.flowOn(Dispatchers.IO)
 
     fun release() {
         isInitialized = false
