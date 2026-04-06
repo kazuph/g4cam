@@ -450,6 +450,17 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
+            // Backend switch button (always visible, prominent)
+            Box(
+                modifier = Modifier
+                    .clickable { viewModel.switchBackend() }
+                    .background(Color(0xCC666666), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text("切替", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+
             // Prompt mode toggle
             Box(
                 modifier = Modifier
@@ -458,25 +469,14 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                         if (uiState.detailedPrompt) Color(0xCCFF8800) else Color(0x99000000),
                         RoundedCornerShape(16.dp)
                     )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
                     if (uiState.detailedPrompt) "詳細" else "簡潔",
-                    color = Color.White, fontSize = 13.sp
+                    color = Color.White, fontSize = 12.sp
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Backend switch button
-            Box(
-                modifier = Modifier
-                    .clickable { viewModel.switchBackend() }
-                    .background(Color(0x99000000), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text("⚙", color = Color.White, fontSize = 13.sp)
-            }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             // Auto mode button (always visible when engine ready)
             if (uiState.isEngineReady) {
@@ -487,10 +487,10 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                             if (uiState.autoMode) Color(0xCCFF3C3C) else Color(0xCC0096FF),
                             RoundedCornerShape(16.dp)
                         )
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = if (uiState.autoMode) "⏹ 停止" else "▶ 開始",
+                        text = if (uiState.autoMode) "⏹" else "▶",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
