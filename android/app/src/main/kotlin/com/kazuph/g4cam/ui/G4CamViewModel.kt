@@ -40,8 +40,9 @@ data class HistoryItem(
 )
 
 enum class BackendChoice(val label: String) {
-    AICORE_FAST("AICore (E2B Fast)"),
-    AICORE_FULL("AICore (E4B Full)"),
+    AICORE_FAST("AICore Prompt (E2B Fast)"),
+    AICORE_FULL("AICore Prompt (E4B Full)"),
+    AICORE_IMAGE_DESC("AICore Image Description"),
     LITERT_GPU("LiteRT-LM (GPU)"),
     LITERT_CPU("LiteRT-LM (CPU)"),
     LITERT_NPU("LiteRT-LM (NPU)"),
@@ -64,8 +65,9 @@ data class CameraUiState(
     val isLiteRTInitializing: Boolean = false,
     val isDownloading: Boolean = false,
     val activeBackend: InferenceBackend? = null,
+    val backendDisplayName: String = "",
     val lastDurationMs: Long = 0,
-    val showHistory: Boolean = false,
+    val detailedPrompt: Boolean = false,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -101,6 +103,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         when (choice) {
             BackendChoice.AICORE_FAST -> initializeAICore(ModelPreference.FAST)
             BackendChoice.AICORE_FULL -> initializeAICore(ModelPreference.FULL)
+            BackendChoice.AICORE_IMAGE_DESC -> initializeImageDescription()
             BackendChoice.LITERT_GPU -> initializeLiteRTWithBackend(Backend.GPU())
             BackendChoice.LITERT_CPU -> initializeLiteRTWithBackend(Backend.CPU())
             BackendChoice.LITERT_NPU -> initializeLiteRTWithBackend(
@@ -109,9 +112,31 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun initializeAICore(preference: Int) {
+    private fun initializeImageDescription() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(statusText = "AICore初期化中...")
+            _uiState.value = _uiState.value.copy(statusText = "Image Description API初期化中...")
+            try {
+                inference.initializeImageDescription(getApplication())
+                _uiState.value = _uiState.value.copy(
+                    isEngineReady = true,
+                    activeBackend = InferenceBackend.AICORE_IMAGE_DESC,
+                    backendDisplayName = "ImgDesc",
+                    statusText = "準備完了 (ImgDesc)"
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Image Description init failed", e)
+                _uiState.value = _uiState.value.copy(
+                    statusText = "Image Description初期化失敗: ${e.message}",
+                    modelUnavailable = true
+                )
+            }
+        }
+    }
+
+    private fun initializeAICore(preference: Int) {
+        val modelName = if (preference == ModelPreference.FAST) "E2B" else "E4B"
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(statusText = "AICore ($modelName) 初期化中...")
             try {
                 val config = GenerationConfig.Builder().apply {
                     modelConfig = ModelConfig.Builder().apply {
@@ -126,7 +151,8 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         isEngineReady = true,
                         activeBackend = InferenceBackend.AICORE,
-                        statusText = "準備完了 (AICore)"
+                        backendDisplayName = "AICore $modelName",
+                        statusText = "準備完了 (AICore $modelName)"
                     )
                 } else {
                     generativeModel.close()
@@ -146,6 +172,13 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun initializeLiteRTWithBackend(backend: Backend) {
+        val name = when (backend) {
+            is Backend.GPU -> "LiteRT GPU"
+            is Backend.NPU -> "LiteRT NPU"
+            is Backend.CPU -> "LiteRT CPU"
+            else -> "LiteRT"
+        }
+        _uiState.value = _uiState.value.copy(backendDisplayName = name)
         if (downloader.isModelDownloaded()) {
             _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
             selectedLiteRTBackend = backend
@@ -188,7 +221,8 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     isEngineReady = true,
                     activeBackend = status.backend,
                     statusText = when (status.backend) {
-                        InferenceBackend.AICORE -> "準備完了 (AICore E2B) - タップで解析"
+                        InferenceBackend.AICORE -> "準備完了 (AICore) - タップで解析"
+                        InferenceBackend.AICORE_IMAGE_DESC -> "準備完了 (ImgDesc) - タップで解析"
                         InferenceBackend.LITERT_LM -> "準備完了 (LiteRT-LM) - タップで解析"
                     }
                 )
@@ -368,10 +402,13 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     is InferenceState.Done -> {
                         val durationMs = System.currentTimeMillis() - analysisStartTime
-                        val backendLabel = when (_uiState.value.activeBackend) {
-                            InferenceBackend.AICORE -> "AICore"
-                            InferenceBackend.LITERT_LM -> "LiteRT"
-                            null -> ""
+                        val backendLabel = _uiState.value.backendDisplayName.ifEmpty {
+                            when (_uiState.value.activeBackend) {
+                                InferenceBackend.AICORE -> "AICore"
+                                InferenceBackend.AICORE_IMAGE_DESC -> "ImgDesc"
+                                InferenceBackend.LITERT_LM -> "LiteRT"
+                                null -> ""
+                            }
                         }
                         Log.i(TAG, "INFERENCE_DONE: ${durationMs}ms backend=$backendLabel text=${inferenceState.text.take(50)}")
                         _uiState.value = _uiState.value.copy(
@@ -505,13 +542,22 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleHistory() {
-        _uiState.value = _uiState.value.copy(showHistory = !_uiState.value.showHistory)
+    fun switchBackend() {
+        // Reset and show selector
+        inference.release()
+        _uiState.value = CameraUiState(showBackendSelector = true)
+    }
+
+    fun togglePromptMode() {
+        _uiState.value = _uiState.value.copy(detailedPrompt = !_uiState.value.detailedPrompt)
     }
 
     private fun buildPrompt(): String {
-        // Keep prompt short for fast inference (history was causing cumulative slowdown)
-        return PROMPT
+        return if (_uiState.value.detailedPrompt) {
+            "この画像を詳しく説明してください。何が写っているか、色、形、配置、文字があれば読み上げ、全体の雰囲気も含めて日本語で3〜5文で説明してください。"
+        } else {
+            PROMPT
+        }
     }
 
     private fun speak(text: String) {

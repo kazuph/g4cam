@@ -3,6 +3,11 @@ package com.kazuph.g4cam.ai
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import com.google.mlkit.genai.imagedescription.ImageDescription
+import com.google.mlkit.genai.imagedescription.ImageDescriber
+import com.google.mlkit.genai.imagedescription.ImageDescriberOptions
+import com.google.mlkit.genai.imagedescription.ImageDescriptionRequest
+import com.google.mlkit.genai.imagedescription.ImageDescriptionResult
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -37,7 +42,7 @@ sealed class InferenceState {
     data class Error(val message: String) : InferenceState()
 }
 
-enum class InferenceBackend { AICORE, LITERT_LM }
+enum class InferenceBackend { AICORE, AICORE_IMAGE_DESC, LITERT_LM }
 
 sealed class ModelStatus {
     data object Checking : ModelStatus()
@@ -51,9 +56,46 @@ sealed class ModelStatus {
 class GemmaInference {
 
     @Volatile private var aicoreModel: GenerativeModel? = null
+    @Volatile private var imageDescriber: ImageDescriber? = null
     @Volatile private var litertEngine: Engine? = null
     @Volatile private var activeBackend: InferenceBackend? = null
     @Volatile private var isInitialized = false
+
+    suspend fun initializeImageDescription(context: Context) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val options = ImageDescriberOptions.builder(context).build()
+            val describer = ImageDescription.getClient(options)
+            val statusFuture = describer.checkFeatureStatus()
+            val status = kotlinx.coroutines.suspendCancellableCoroutine<Int> { cont ->
+                statusFuture.addListener({ cont.resume(statusFuture.get()) {} }, java.util.concurrent.Executors.newSingleThreadExecutor())
+            }
+            Log.i(TAG, "Image Description status: $status")
+            if (status == 3) {
+                imageDescriber = describer
+                activeBackend = InferenceBackend.AICORE_IMAGE_DESC
+                isInitialized = true
+                Log.i(TAG, "Image Description API available")
+            } else if (status == 1 || status == 2) {
+                Log.i(TAG, "Image Description model downloading...")
+                val callback = object : com.google.mlkit.genai.common.DownloadCallback {
+                    override fun onDownloadStarted(bytesToDownload: Long) { Log.i(TAG, "ImgDesc DL started: $bytesToDownload bytes") }
+                    override fun onDownloadProgress(totalBytesDownloaded: Long) { Log.i(TAG, "ImgDesc DL progress: $totalBytesDownloaded") }
+                    override fun onDownloadCompleted() { Log.i(TAG, "ImgDesc DL completed") }
+                    override fun onDownloadFailed(e: com.google.mlkit.genai.common.GenAiException) { Log.e(TAG, "ImgDesc DL failed", e) }
+                }
+                val dlFuture = describer.downloadFeature(callback)
+                kotlinx.coroutines.suspendCancellableCoroutine<Void?> { cont ->
+                    dlFuture.addListener({ cont.resume(null) {} }, java.util.concurrent.Executors.newSingleThreadExecutor())
+                }
+                imageDescriber = describer
+                activeBackend = InferenceBackend.AICORE_IMAGE_DESC
+                isInitialized = true
+                Log.i(TAG, "Image Description API ready after download")
+            } else {
+                throw RuntimeException("Image Description not available (status=$status)")
+            }
+        }
+    }
 
     fun setAICoreModel(model: GenerativeModel) {
         aicoreModel = model
@@ -192,6 +234,7 @@ class GemmaInference {
         try {
             val result = when (activeBackend) {
                 InferenceBackend.AICORE -> analyzeWithAICore(bitmap, prompt)
+                InferenceBackend.AICORE_IMAGE_DESC -> analyzeWithImageDescription(bitmap)
                 InferenceBackend.LITERT_LM -> analyzeWithLiteRT(bitmap, prompt)
                 null -> throw IllegalStateException("No backend active")
             }
@@ -229,6 +272,29 @@ class GemmaInference {
             InferenceState.Done("$responseText\n(応答が途中で切れました)")
         } else {
             InferenceState.Done(responseText)
+        }
+    }
+
+    private suspend fun analyzeWithImageDescription(bitmap: Bitmap): InferenceState {
+        val describer = imageDescriber ?: throw IllegalStateException("ImageDescriber is null")
+        val scaledBitmap = scaleBitmap(bitmap, 512)
+        val request = ImageDescriptionRequest.builder(scaledBitmap).build()
+
+        val resultFuture = describer.runInference(request)
+        val result = kotlinx.coroutines.suspendCancellableCoroutine<ImageDescriptionResult> { cont ->
+            resultFuture.addListener({
+                try { cont.resume(resultFuture.get()) {} }
+                catch (e: Exception) { cont.resumeWith(Result.failure(e)) }
+            }, java.util.concurrent.Executors.newSingleThreadExecutor())
+        }
+
+        if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+
+        val text = result.description ?: ""
+        return if (text.isEmpty()) {
+            InferenceState.SafetyBlocked
+        } else {
+            InferenceState.Done(text)
         }
     }
 
@@ -280,6 +346,8 @@ class GemmaInference {
         activeBackend = null
         aicoreModel?.close()
         aicoreModel = null
+        imageDescriber?.close()
+        imageDescriber = null
         try { litertEngine?.close() } catch (_: Exception) {}
         litertEngine = null
     }

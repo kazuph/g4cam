@@ -72,8 +72,10 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraVersion")
     implementation("androidx.camera:camera-view:$cameraVersion")
 
-    // ML Kit GenAI Prompt API (Gemini Nano / Gemma 4 via AICore) - primary
+    // ML Kit GenAI APIs (Gemini Nano / Gemma 4 via AICore)
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
+    implementation("com.google.mlkit:genai-image-description:1.0.0-beta1")
+    implementation("com.google.android.gms:play-services-tasks:18.2.0")
 
     // LiteRT-LM 0.10.1 (self-built from source to fix GPU decode crash - Issue #1850)
     implementation(files("libs/litertlm-android-0.10.1.aar"))

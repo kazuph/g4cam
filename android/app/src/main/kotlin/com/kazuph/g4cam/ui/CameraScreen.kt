@@ -205,15 +205,10 @@ fun G4CamApp(
         return
     }
 
-    // History overlay
-    if (uiState.showHistory) {
-        HistoryScreen(viewModel = viewModel)
-        return
-    }
-
     CameraScreen(viewModel = viewModel)
 }
 
+/*
 @Composable
 private fun HistoryScreen(viewModel: G4CamViewModel) {
     val historyItems by viewModel.historyItems.collectAsState()
@@ -353,6 +348,7 @@ private fun HistoryScreen(viewModel: G4CamViewModel) {
         }
     }
 }
+*/
 
 @Composable
 private fun CameraScreen(viewModel: G4CamViewModel) {
@@ -454,19 +450,33 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
-            // History button
-            val historyItems by viewModel.historyItems.collectAsState()
-            if (historyItems.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .clickable { viewModel.toggleHistory() }
-                        .background(Color(0x99000000), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text("📋 ${historyItems.size}", color = Color.White, fontSize = 13.sp)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
+            // Prompt mode toggle
+            Box(
+                modifier = Modifier
+                    .clickable { viewModel.togglePromptMode() }
+                    .background(
+                        if (uiState.detailedPrompt) Color(0xCCFF8800) else Color(0x99000000),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    if (uiState.detailedPrompt) "詳細" else "簡潔",
+                    color = Color.White, fontSize = 13.sp
+                )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Backend switch button
+            Box(
+                modifier = Modifier
+                    .clickable { viewModel.switchBackend() }
+                    .background(Color(0x99000000), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text("⚙", color = Color.White, fontSize = 13.sp)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
 
             // Auto mode button (always visible when engine ready)
             if (uiState.isEngineReady) {
@@ -545,6 +555,10 @@ private fun BackendSelectorScreen(onSelect: (BackendChoice) -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
             BackendButton("E4B Full", "高精度・やや遅い", Color(0xFF0066AA)) {
                 onSelect(BackendChoice.AICORE_FULL)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("Image Description", "画像特化API・フィルター緩い", Color(0xFF0044CC)) {
+                onSelect(BackendChoice.AICORE_IMAGE_DESC)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
