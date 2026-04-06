@@ -258,8 +258,8 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             (bitmap.height * thumbScale).toInt(),
             true
         )
-        // Analyzed image (256px - same as sent to model)
-        val analyzeScale = 256f / maxOf(bitmap.width, bitmap.height)
+        // Analyzed image (512px - same as sent to model)
+        val analyzeScale = 512f / maxOf(bitmap.width, bitmap.height)
         val analyzedImage = Bitmap.createScaledBitmap(
             bitmap,
             (bitmap.width * analyzeScale).toInt(),
