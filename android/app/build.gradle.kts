@@ -75,8 +75,11 @@ dependencies {
     // ML Kit GenAI Prompt API (Gemini Nano / Gemma 4 via AICore) - primary
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
 
-    // LiteRT-LM (fallback when AICore Preview unavailable)
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
+    // LiteRT-LM 0.10.1 (self-built from source to fix GPU decode crash - Issue #1850)
+    implementation(files("libs/litertlm-android-0.10.1.aar"))
+    // LiteRT-LM dependencies (gson, kotlin-reflect)
+    implementation("com.google.code.gson:gson:2.13.2")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.3.0")
 
     // OkHttp for model download (fallback)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
