@@ -27,6 +27,7 @@ private const val AUTO_INTERVAL_SECONDS = 10
 
 data class HistoryItem(
     val thumbnail: android.graphics.Bitmap,
+    val analyzedImage: android.graphics.Bitmap,  // 256px - same as sent to model
     val text: String,
     val durationMs: Long,
 )
@@ -249,12 +250,20 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
 
         analysisStartTime = System.currentTimeMillis()
 
-        // Create thumbnail for history (64px, low quality)
+        // Create images for history
         val thumbScale = 64f / maxOf(bitmap.width, bitmap.height)
         val thumbnail = Bitmap.createScaledBitmap(
             bitmap,
             (bitmap.width * thumbScale).toInt(),
             (bitmap.height * thumbScale).toInt(),
+            true
+        )
+        // Analyzed image (256px - same as sent to model)
+        val analyzeScale = 256f / maxOf(bitmap.width, bitmap.height)
+        val analyzedImage = Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * analyzeScale).toInt(),
+            (bitmap.height * analyzeScale).toInt(),
             true
         )
 
@@ -287,6 +296,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             InferenceBackend.LITERT_LM -> "LiteRT"
                             null -> ""
                         }
+                        Log.i(TAG, "INFERENCE_DONE: ${durationMs}ms backend=$backendLabel text=${inferenceState.text.take(50)}")
                         _uiState.value = _uiState.value.copy(
                             resultText = inferenceState.text,
                             showGlow = false,
@@ -297,14 +307,14 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         // Save to history
                         _historyItems.value = _historyItems.value + HistoryItem(
                             thumbnail = thumbnail,
+                            analyzedImage = analyzedImage,
                             text = inferenceState.text,
                             durationMs = durationMs
                         )
-                        promptHistory.add(inferenceState.text)
-                        if (promptHistory.size > 3) promptHistory.removeAt(0)
                         speak(inferenceState.text)
                         bitmap.recycle()
-                        if (_uiState.value.autoMode) startCountdown() else scheduleHideStatus()
+                        // Keep status visible (show duration) until next analysis
+                        if (_uiState.value.autoMode) startCountdown()
                     }
                     is InferenceState.Error -> {
                         Log.e(TAG, "Inference error: ${inferenceState.message}")
@@ -372,12 +382,8 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildPrompt(): String {
-        var prompt = PROMPT
-        if (promptHistory.isNotEmpty()) {
-            val historyText = promptHistory.mapIndexed { i, h -> "${i + 1}回前: $h" }.joinToString("\n")
-            prompt += "\n\n過去の観察:\n$historyText\n\n上記と違う点や変化に注目して。同じことは言わないで。"
-        }
-        return prompt
+        // Keep prompt short for fast inference (history was causing cumulative slowdown)
+        return PROMPT
     }
 
     private fun speak(text: String) {

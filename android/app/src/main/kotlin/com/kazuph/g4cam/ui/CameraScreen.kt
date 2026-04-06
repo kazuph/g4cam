@@ -32,7 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -209,6 +211,64 @@ fun G4CamApp(
 @Composable
 private fun HistoryScreen(viewModel: G4CamViewModel) {
     val historyItems by viewModel.historyItems.collectAsState()
+    var selectedItem by remember { mutableStateOf<HistoryItem?>(null) }
+
+    // Full screen image view when item selected
+    if (selectedItem != null) {
+        val item = selectedItem!!
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable { selectedItem = null }
+        ) {
+            // Analyzed image (256px, same as sent to model)
+            Image(
+                bitmap = item.analyzedImage.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+            // Text overlay at bottom
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color(0xE6000000))
+                        )
+                    )
+                    .padding(horizontal = 20.dp, vertical = 24.dp)
+            ) {
+                Column {
+                    Text(
+                        text = item.text,
+                        color = Color.White,
+                        fontSize = 22.sp,
+                        lineHeight = 30.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "${item.durationMs / 1000}.${(item.durationMs % 1000) / 100}秒",
+                        color = Color(0xFFAAAAAA),
+                        fontSize = 14.sp
+                    )
+                }
+            }
+            // Close hint
+            Text(
+                text = "タップで閉じる",
+                color = Color(0x99FFFFFF),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 16.dp)
+            )
+        }
+        return
+    }
 
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
@@ -220,7 +280,6 @@ private fun HistoryScreen(viewModel: G4CamViewModel) {
                 .fillMaxSize()
                 .padding(top = statusBarPadding.calculateTopPadding())
         ) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -254,6 +313,7 @@ private fun HistoryScreen(viewModel: G4CamViewModel) {
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp)
                                 .background(Color(0xFF1A1A1A), RoundedCornerShape(12.dp))
+                                .clickable { selectedItem = item }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.Top
                         ) {
