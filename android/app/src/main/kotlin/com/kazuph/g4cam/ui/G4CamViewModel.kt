@@ -22,7 +22,7 @@ import kotlinx.coroutines.withTimeout
 import java.util.Locale
 
 private const val TAG = "G4Cam"
-private const val PROMPT = "絵文字1つ＋この画像の説明を1文で。文字が見えたら必ず読む。日本語で短く。"
+private const val PROMPT = "この画像に何が写っていますか？日本語で1文で簡潔に説明してください。文字が見えたら読み上げてください。"
 private const val AUTO_INTERVAL_SECONDS = 10
 
 data class HistoryItem(
