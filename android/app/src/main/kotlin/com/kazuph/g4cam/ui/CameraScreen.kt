@@ -3,19 +3,26 @@ package com.kazuph.g4cam.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,8 +36,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -49,7 +59,6 @@ fun G4CamApp(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Model unavailable screen - show fallback option
     if (uiState.modelUnavailable) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -79,29 +88,20 @@ fun G4CamApp(
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = { viewModel.switchToLiteRTFallback() },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF0096FF)
-                    ),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0096FF)),
                     shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text(
-                        text = "LiteRT-LM版で試す",
-                        fontSize = 16.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+                    Text("LiteRT-LM版で試す", fontSize = 16.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "モデルDLが必要（約2.6GB・Wi-Fi推奨）",
-                    color = Color(0xFF888888),
-                    fontSize = 12.sp
-                )
+                Text("モデルDLが必要（約2.6GB・Wi-Fi推奨）",
+                    color = Color(0xFF888888), fontSize = 12.sp)
             }
         }
         return
     }
 
-    // Model needs download - ask user first
     if (uiState.needsModelDownload || uiState.isDownloading) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -114,43 +114,23 @@ fun G4CamApp(
             ) {
                 Text(text = "🤖", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "Gemma 4 E2B",
-                    color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Gemma 4 E2B", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
-
                 if (uiState.isDownloading) {
                     CircularProgressIndicator(color = Color(0xFF0096FF))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = uiState.statusText,
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
+                    Text(uiState.statusText, color = Color.White, fontSize = 14.sp)
                 } else {
-                    Text(
-                        text = "AIモデルのダウンロードが必要です\nWi-Fi接続を推奨します",
-                        color = Color(0xFFCCCCCC),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 22.sp
-                    )
+                    Text("AIモデルのダウンロードが必要です\nWi-Fi接続を推奨します",
+                        color = Color(0xFFCCCCCC), fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 22.sp)
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { viewModel.startModelDownload() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF0096FF)
-                        ),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0096FF)),
                         shape = RoundedCornerShape(22.dp)
                     ) {
-                        Text(
-                            text = "ダウンロード開始",
-                            fontSize = 16.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
+                        Text("ダウンロード開始", fontSize = 16.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     }
                 }
             }
@@ -158,7 +138,6 @@ fun G4CamApp(
         return
     }
 
-    // Model downloaded, needs initialization (user must press button)
     if (uiState.needsLiteRTInit) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -171,40 +150,24 @@ fun G4CamApp(
             ) {
                 Text(text = "🤖", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "モデル準備完了",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("モデル準備完了", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "エンジンの初期化に\n10〜30秒かかります",
-                    color = Color(0xFFCCCCCC),
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 22.sp
-                )
+                Text("エンジンの初期化に\n30〜60秒かかります",
+                    color = Color(0xFFCCCCCC), fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 22.sp)
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = { viewModel.startLiteRTInit() },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00CC66)
-                    ),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00CC66)),
                     shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text(
-                        text = "初期化開始",
-                        fontSize = 16.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+                    Text("初期化開始", fontSize = 16.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
             }
         }
         return
     }
 
-    // LiteRT-LM is initializing - show spinner, block camera screen
     if (uiState.isLiteRTInitializing) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -215,18 +178,10 @@ fun G4CamApp(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(32.dp)
             ) {
-                CircularProgressIndicator(
-                    color = Color(0xFF00CC66),
-                    modifier = Modifier.padding(16.dp)
-                )
+                CircularProgressIndicator(color = Color(0xFF00CC66), modifier = Modifier.padding(16.dp))
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = uiState.statusText,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 24.sp
-                )
+                Text(uiState.statusText, color = Color.White, fontSize = 16.sp,
+                    textAlign = TextAlign.Center, lineHeight = 24.sp)
             }
         }
         return
@@ -237,16 +192,100 @@ fun G4CamApp(
             modifier = Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "カメラの権限が必要です",
-                color = Color.White,
-                fontSize = 18.sp
-            )
+            Text("カメラの権限が必要です", color = Color.White, fontSize = 18.sp)
         }
         return
     }
 
+    // History overlay
+    if (uiState.showHistory) {
+        HistoryScreen(viewModel = viewModel)
+        return
+    }
+
     CameraScreen(viewModel = viewModel)
+}
+
+@Composable
+private fun HistoryScreen(viewModel: G4CamViewModel) {
+    val historyItems by viewModel.historyItems.collectAsState()
+
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black)
+    ) {
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = statusBarPadding.calculateTopPadding())
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("履歴", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .clickable { viewModel.toggleHistory() }
+                        .background(Color(0x66FFFFFF), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("閉じる", color = Color.White, fontSize = 16.sp)
+                }
+            }
+
+            if (historyItems.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("まだ解析履歴がありません", color = Color(0xFF888888), fontSize = 18.sp)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                    items(historyItems.reversed()) { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .background(Color(0xFF1A1A1A), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Image(
+                                bitmap = item.thumbnail.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.text,
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    lineHeight = 22.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${item.durationMs / 1000}.${(item.durationMs % 1000) / 100}秒",
+                                    color = Color(0xFF888888),
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -256,8 +295,6 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
     val uiState by viewModel.uiState.collectAsState()
 
     val cameraController = remember { CameraController(context) }
-
-    // Status bar insets to avoid overlap
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
 
     LaunchedEffect(Unit) {
@@ -284,97 +321,131 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 detectTapGestures { analyze() }
             }
     ) {
+        // Camera preview
         CameraPreview(
             modifier = Modifier.fillMaxSize(),
             cameraController = cameraController,
             lifecycleOwner = lifecycleOwner
         )
 
+        // AI Glow Effect
         AiGlowEffect(isActive = uiState.showGlow)
 
-        AnimatedVisibility(
-            visible = uiState.showFlash,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
+        // Flash Effect
+        AnimatedVisibility(visible = uiState.showFlash, enter = fadeIn(), exit = fadeOut()) {
             FlashEffect(isActive = true)
         }
 
-        // Top: Status - with status bar padding to avoid overlap
+        // === TOP LEFT: Status (animated visibility) ===
         AnimatedVisibility(
             visible = uiState.showStatus,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(top = statusBarPadding.calculateTopPadding())
+                .padding(
+                    top = statusBarPadding.calculateTopPadding() + 8.dp,
+                    start = 12.dp
+                )
         ) {
-            StatusBar(
-                text = uiState.statusText,
-                isLoading = uiState.isAnalyzing
-            )
-        }
-
-        // Top right: Countdown - with status bar padding
-        if (uiState.autoMode && uiState.countdown > 0) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(
-                        top = statusBarPadding.calculateTopPadding() + 12.dp,
-                        end = 12.dp
-                    )
                     .background(Color(0x99000000), RoundedCornerShape(16.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
-                Text(
-                    text = "${uiState.countdown}s",
-                    color = Color.White,
-                    fontSize = 13.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (uiState.isAnalyzing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(uiState.statusText, color = Color.White, fontSize = 13.sp)
+                }
             }
         }
 
-        // Bottom: Auto mode toggle + Result
-        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            ResultOverlay(text = uiState.resultText)
+        // === TOP RIGHT: Buttons (always visible, fixed position) ===
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(
+                    top = statusBarPadding.calculateTopPadding() + 8.dp,
+                    end = 12.dp
+                )
+        ) {
+            // Countdown
+            if (uiState.autoMode && uiState.countdown > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0x99000000), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text("${uiState.countdown}s", color = Color.White, fontSize = 13.sp)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
 
+            // History button
+            val historyItems by viewModel.historyItems.collectAsState()
+            if (historyItems.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .clickable { viewModel.toggleHistory() }
+                        .background(Color(0x99000000), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("📋 ${historyItems.size}", color = Color.White, fontSize = 13.sp)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            // Auto mode button (always visible when engine ready)
             if (uiState.isEngineReady) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(bottom = 8.dp)
+                        .clickable { viewModel.toggleAutoMode() }
+                        .background(
+                            if (uiState.autoMode) Color(0xCCFF3C3C) else Color(0xCC0096FF),
+                            RoundedCornerShape(16.dp)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    AutoModeButton(
-                        isAutoMode = uiState.autoMode,
-                        onClick = { viewModel.toggleAutoMode() }
+                    Text(
+                        text = if (uiState.autoMode) "⏹ 停止" else "▶ 開始",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun AutoModeButton(
-    isAutoMode: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .clickable { onClick() }
-            .background(
-                if (isAutoMode) Color(0xCCFF3C3C) else Color(0xCC0096FF),
-                RoundedCornerShape(22.dp)
-            )
-            .padding(horizontal = 24.dp, vertical = 10.dp)
-    ) {
-        Text(
-            text = if (isAutoMode) "⏹ 停止" else "▶ 開始",
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
+        // === BOTTOM: Result text (large, accessible) ===
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color(0xE6000000))
+                    )
+                )
+                .padding(horizontal = 20.dp, vertical = 32.dp)
+        ) {
+            if (uiState.resultText.isNotEmpty()) {
+                Text(
+                    text = uiState.resultText,
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Start
+                )
+            }
+        }
     }
 }
 

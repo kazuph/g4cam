@@ -25,6 +25,12 @@ private const val TAG = "G4Cam"
 private const val PROMPT = "絵文字1つ＋この画像の説明を1文で。文字が見えたら必ず読む。日本語で短く。"
 private const val AUTO_INTERVAL_SECONDS = 10
 
+data class HistoryItem(
+    val thumbnail: android.graphics.Bitmap,
+    val text: String,
+    val durationMs: Long,
+)
+
 data class CameraUiState(
     val isAnalyzing: Boolean = false,
     val isEngineReady: Boolean = false,
@@ -41,6 +47,8 @@ data class CameraUiState(
     val isLiteRTInitializing: Boolean = false,
     val isDownloading: Boolean = false,
     val activeBackend: InferenceBackend? = null,
+    val lastDurationMs: Long = 0,
+    val showHistory: Boolean = false,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,8 +63,11 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private var ttsReady = false
     private var autoJob: Job? = null
     private var statusHideJob: Job? = null
+    private var analysisStartTime = 0L
 
-    private val history = mutableListOf<String>()
+    private val promptHistory = mutableListOf<String>()
+    private val _historyItems = MutableStateFlow<List<HistoryItem>>(emptyList())
+    val historyItems: StateFlow<List<HistoryItem>> = _historyItems.asStateFlow()
 
     init {
         tts = TextToSpeech(application) { status ->
@@ -236,6 +247,17 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         val state = _uiState.value
         if (state.isAnalyzing || !state.isEngineReady) return
 
+        analysisStartTime = System.currentTimeMillis()
+
+        // Create thumbnail for history (64px, low quality)
+        val thumbScale = 64f / maxOf(bitmap.width, bitmap.height)
+        val thumbnail = Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * thumbScale).toInt(),
+            (bitmap.height * thumbScale).toInt(),
+            true
+        )
+
         _uiState.value = state.copy(
             isAnalyzing = true,
             showGlow = true,
@@ -259,6 +281,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(resultText = inferenceState.text)
                     }
                     is InferenceState.Done -> {
+                        val durationMs = System.currentTimeMillis() - analysisStartTime
                         val backendLabel = when (_uiState.value.activeBackend) {
                             InferenceBackend.AICORE -> "AICore"
                             InferenceBackend.LITERT_LM -> "LiteRT"
@@ -268,10 +291,17 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             resultText = inferenceState.text,
                             showGlow = false,
                             isAnalyzing = false,
-                            statusText = if (_uiState.value.autoMode) "オート ($backendLabel)" else "準備完了 ($backendLabel)"
+                            lastDurationMs = durationMs,
+                            statusText = "${durationMs / 1000}.${(durationMs % 1000) / 100}秒 ($backendLabel)"
                         )
-                        history.add(inferenceState.text)
-                        if (history.size > 3) history.removeAt(0)
+                        // Save to history
+                        _historyItems.value = _historyItems.value + HistoryItem(
+                            thumbnail = thumbnail,
+                            text = inferenceState.text,
+                            durationMs = durationMs
+                        )
+                        promptHistory.add(inferenceState.text)
+                        if (promptHistory.size > 3) promptHistory.removeAt(0)
                         speak(inferenceState.text)
                         bitmap.recycle()
                         if (_uiState.value.autoMode) startCountdown() else scheduleHideStatus()
@@ -337,10 +367,14 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleHistory() {
+        _uiState.value = _uiState.value.copy(showHistory = !_uiState.value.showHistory)
+    }
+
     private fun buildPrompt(): String {
         var prompt = PROMPT
-        if (history.isNotEmpty()) {
-            val historyText = history.mapIndexed { i, h -> "${i + 1}回前: $h" }.joinToString("\n")
+        if (promptHistory.isNotEmpty()) {
+            val historyText = promptHistory.mapIndexed { i, h -> "${i + 1}回前: $h" }.joinToString("\n")
             prompt += "\n\n過去の観察:\n$historyText\n\n上記と違う点や変化に注目して。同じことは言わないで。"
         }
         return prompt
@@ -349,7 +383,11 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private fun speak(text: String) {
         if (!ttsReady) return
         tts?.stop()
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "g4cam_utterance")
+        // Remove emoji for natural TTS
+        val cleanText = text.replace(Regex("[\\p{So}\\p{Cn}]"), "").trim()
+        if (cleanText.isNotEmpty()) {
+            tts?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, "g4cam_utterance")
+        }
     }
 
     private fun scheduleHideStatus() {

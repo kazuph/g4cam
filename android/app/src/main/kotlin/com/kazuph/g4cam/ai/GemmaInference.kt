@@ -170,7 +170,7 @@ class GemmaInference {
 
     private suspend fun analyzeWithAICore(bitmap: Bitmap, prompt: String): InferenceState {
         val localModel = aicoreModel ?: throw IllegalStateException("AICore model is null")
-        val scaledBitmap = scaleBitmap(bitmap, 512)
+        val scaledBitmap = scaleBitmap(bitmap, 256)
 
         val request = generateContentRequest(ImagePart(scaledBitmap), TextPart(prompt)) {}
         val response = localModel.generateContent(request)
@@ -194,7 +194,7 @@ class GemmaInference {
 
     private fun analyzeWithLiteRT(bitmap: Bitmap, prompt: String): InferenceState {
         val localEngine = litertEngine ?: throw IllegalStateException("LiteRT engine is null")
-        val scaledBitmap = scaleBitmap(bitmap, 512)
+        val scaledBitmap = scaleBitmap(bitmap, 256)
 
         val baos = ByteArrayOutputStream()
         scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
