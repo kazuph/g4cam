@@ -69,6 +69,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun initializeEngine() {
+        // Skip if already initialized or in progress
+        if (_uiState.value.isEngineReady || _uiState.value.isLiteRTInitializing ||
+            _uiState.value.needsLiteRTInit || _uiState.value.needsModelDownload ||
+            _uiState.value.isDownloading || _uiState.value.modelUnavailable) {
+            return
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(statusText = "AIモデルを確認中...")
             try {
