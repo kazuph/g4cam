@@ -6,6 +6,12 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.ai.edge.litertlm.Backend
+import com.google.mlkit.genai.prompt.GenerationConfig
+import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.ModelConfig
+import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.kazuph.g4cam.ai.GemmaInference
 import com.kazuph.g4cam.ai.InferenceBackend
 import com.kazuph.g4cam.ai.InferenceState
@@ -18,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeout
 import java.util.Locale
 
@@ -32,7 +39,16 @@ data class HistoryItem(
     val durationMs: Long,
 )
 
+enum class BackendChoice(val label: String) {
+    AICORE_FAST("AICore (E2B Fast)"),
+    AICORE_FULL("AICore (E4B Full)"),
+    LITERT_GPU("LiteRT-LM (GPU)"),
+    LITERT_CPU("LiteRT-LM (CPU)"),
+    LITERT_NPU("LiteRT-LM (NPU)"),
+}
+
 data class CameraUiState(
+    val showBackendSelector: Boolean = true,
     val isAnalyzing: Boolean = false,
     val isEngineReady: Boolean = false,
     val resultText: String = "",
@@ -79,6 +95,67 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun selectBackend(choice: BackendChoice) {
+        _uiState.value = _uiState.value.copy(showBackendSelector = false)
+        when (choice) {
+            BackendChoice.AICORE_FAST -> initializeAICore(ModelPreference.FAST)
+            BackendChoice.AICORE_FULL -> initializeAICore(ModelPreference.FULL)
+            BackendChoice.LITERT_GPU -> initializeLiteRTWithBackend(Backend.GPU())
+            BackendChoice.LITERT_CPU -> initializeLiteRTWithBackend(Backend.CPU())
+            BackendChoice.LITERT_NPU -> initializeLiteRTWithBackend(
+                Backend.NPU(nativeLibraryDir = getApplication<Application>().applicationInfo.nativeLibraryDir)
+            )
+        }
+    }
+
+    private fun initializeAICore(preference: Int) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(statusText = "AICore初期化中...")
+            try {
+                val config = GenerationConfig.Builder().apply {
+                    modelConfig = ModelConfig.Builder().apply {
+                        this.preference = preference
+                        releaseStage = ModelReleaseStage.PREVIEW
+                    }.build()
+                }.build()
+                val generativeModel = Generation.getClient(config)
+                val status = withTimeout(30_000) { generativeModel.checkStatus() }
+                if (status == 3) {
+                    inference.setAICoreModel(generativeModel)
+                    _uiState.value = _uiState.value.copy(
+                        isEngineReady = true,
+                        activeBackend = InferenceBackend.AICORE,
+                        statusText = "準備完了 (AICore)"
+                    )
+                } else {
+                    generativeModel.close()
+                    _uiState.value = _uiState.value.copy(
+                        statusText = "AICore利用不可 (status=$status)",
+                        modelUnavailable = true
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "AICore init failed", e)
+                _uiState.value = _uiState.value.copy(
+                    statusText = "AICore初期化失敗: ${e.message}",
+                    modelUnavailable = true
+                )
+            }
+        }
+    }
+
+    private fun initializeLiteRTWithBackend(backend: Backend) {
+        if (downloader.isModelDownloaded()) {
+            _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
+            selectedLiteRTBackend = backend
+        } else {
+            _uiState.value = _uiState.value.copy(needsModelDownload = true)
+            selectedLiteRTBackend = backend
+        }
+    }
+
+    private var selectedLiteRTBackend: Backend = Backend.GPU()
 
     fun initializeEngine() {
         // Skip if already initialized or in progress
@@ -212,7 +289,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 Log.i(TAG, "Model file: ${modelFile.absolutePath}, exists=${modelFile.exists()}, size=${modelFile.length()}")
 
                 val result = withTimeout(180_000) {
-                    inference.initializeLiteRT(modelFile)
+                    inference.initializeLiteRTWithBackend(modelFile, selectedLiteRTBackend)
                 }
                 Log.i(TAG, "initializeLiteRT result: $result")
                 _uiState.value = _uiState.value.copy(isLiteRTInitializing = false)

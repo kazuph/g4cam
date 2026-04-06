@@ -61,6 +61,12 @@ fun G4CamApp(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Backend selection screen
+    if (uiState.showBackendSelector) {
+        BackendSelectorScreen(onSelect = { viewModel.selectBackend(it) })
+        return
+    }
+
     if (uiState.modelUnavailable) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
@@ -505,6 +511,79 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                     textAlign = TextAlign.Start
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BackendSelectorScreen(onSelect: (BackendChoice) -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    top = statusBarPadding.calculateTopPadding() + 16.dp,
+                    start = 24.dp,
+                    end = 24.dp
+                )
+        ) {
+            Text("g4cam", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("推論バックエンドを選択", color = Color(0xFFAAAAAA), fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text("AICore (Gemini Nano)", color = Color(0xFF0096FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            BackendButton("E2B Fast (推奨)", "高速・NPU活用", Color(0xFF0096FF)) {
+                onSelect(BackendChoice.AICORE_FAST)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("E4B Full", "高精度・やや遅い", Color(0xFF0066AA)) {
+                onSelect(BackendChoice.AICORE_FULL)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("LiteRT-LM (要モデルDL 2.6GB)", color = Color(0xFF00CC66), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            BackendButton("GPU", "メモリ効率良い", Color(0xFF00CC66)) {
+                onSelect(BackendChoice.LITERT_GPU)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("NPU", "ハードウェア最適化", Color(0xFF00AA55)) {
+                onSelect(BackendChoice.LITERT_NPU)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("CPU", "最も互換性高い", Color(0xFF008844)) {
+                onSelect(BackendChoice.LITERT_CPU)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackendButton(title: String, subtitle: String, color: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .background(color.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 20.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Text(subtitle, color = Color(0xFFAAAAAA), fontSize = 13.sp)
+            }
+            Text("→", color = color, fontSize = 20.sp)
         }
     }
 }

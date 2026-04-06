@@ -55,6 +55,45 @@ class GemmaInference {
     @Volatile private var activeBackend: InferenceBackend? = null
     @Volatile private var isInitialized = false
 
+    fun setAICoreModel(model: GenerativeModel) {
+        aicoreModel = model
+        activeBackend = InferenceBackend.AICORE
+        isInitialized = true
+    }
+
+    suspend fun initializeLiteRTWithBackend(modelFile: File, backend: Backend): ModelStatus {
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val fileSize = modelFile.length()
+            Log.i(TAG, "Model file size: $fileSize bytes (${fileSize / 1_000_000}MB)")
+            if (fileSize < 2_500_000_000L) {
+                Log.e(TAG, "Model file incomplete ($fileSize bytes)")
+                modelFile.delete()
+                return@withContext ModelStatus.NeedsFallbackDownload(
+                    "モデルファイルが不完全です\n再ダウンロードが必要です"
+                )
+            }
+
+            try {
+                Log.i(TAG, "Trying ${backend.javaClass.simpleName} backend...")
+                val config = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = backend,
+                    visionBackend = backend,
+                )
+                val engine = Engine(config)
+                engine.initialize()
+                litertEngine = engine
+                activeBackend = InferenceBackend.LITERT_LM
+                isInitialized = true
+                Log.i(TAG, "LiteRT-LM ${backend.javaClass.simpleName} initialized")
+                ModelStatus.Ready(InferenceBackend.LITERT_LM)
+            } catch (e: Exception) {
+                Log.e(TAG, "LiteRT-LM ${backend.javaClass.simpleName} failed: ${e.message}")
+                ModelStatus.Unavailable("${backend.javaClass.simpleName}初期化失敗: ${e.message}")
+            }
+        }
+    }
+
     suspend fun initialize(): ModelStatus {
         // Try AICore PREVIEW (Gemma 4 E2B) first
         try {
