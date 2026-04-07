@@ -482,17 +482,6 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 Spacer(modifier = Modifier.width(6.dp))
             }
 
-            // Backend switch button
-            Box(
-                modifier = Modifier
-                    .clickable { viewModel.switchBackend() }
-                    .background(Color(0xCC666666), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text("切替", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(modifier = Modifier.width(6.dp))
-
             // Prompt mode toggle
             Box(
                 modifier = Modifier
