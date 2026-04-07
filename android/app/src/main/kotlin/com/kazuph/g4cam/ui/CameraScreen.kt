@@ -80,7 +80,7 @@ fun G4CamApp(
                 Text(text = "⚠️", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "AICore Preview が利用できません",
+                    text = "初期化に失敗しました",
                     color = Color.White,
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center
@@ -95,16 +95,13 @@ fun G4CamApp(
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
-                    onClick = { viewModel.switchToLiteRTFallback() },
+                    onClick = { viewModel.switchBackend() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0096FF)),
                     shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text("LiteRT-LM版で試す", fontSize = 16.sp,
+                    Text("モデル選択に戻る", fontSize = 16.sp,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("モデルDLが必要（約2.6GB・Wi-Fi推奨）",
-                    color = Color(0xFF888888), fontSize = 12.sp)
             }
         }
         return
@@ -140,6 +137,9 @@ fun G4CamApp(
                         Text("ダウンロード開始", fontSize = 16.sp,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("← モデル選択に戻る", color = Color(0xFF888888), fontSize = 14.sp,
+                        modifier = Modifier.clickable { viewModel.switchBackend() })
                 }
             }
         }
@@ -171,6 +171,9 @@ fun G4CamApp(
                     Text("初期化開始", fontSize = 16.sp,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("← モデル選択に戻る", color = Color(0xFF888888), fontSize = 14.sp,
+                    modifier = Modifier.clickable { viewModel.switchBackend() })
             }
         }
         return
@@ -190,6 +193,9 @@ fun G4CamApp(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(uiState.statusText, color = Color.White, fontSize = 16.sp,
                     textAlign = TextAlign.Center, lineHeight = 24.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("← キャンセルして戻る", color = Color(0xFF888888), fontSize = 14.sp,
+                    modifier = Modifier.clickable { viewModel.switchBackend() })
             }
         }
         return
@@ -205,10 +211,14 @@ fun G4CamApp(
         return
     }
 
+    if (uiState.showHistory) {
+        HistoryScreen(viewModel = viewModel)
+        return
+    }
+
     CameraScreen(viewModel = viewModel)
 }
 
-/*
 @Composable
 private fun HistoryScreen(viewModel: G4CamViewModel) {
     val historyItems by viewModel.historyItems.collectAsState()
@@ -335,11 +345,22 @@ private fun HistoryScreen(viewModel: G4CamViewModel) {
                                     lineHeight = 22.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "${item.durationMs / 1000}.${(item.durationMs % 1000) / 100}秒",
-                                    color = Color(0xFF888888),
-                                    fontSize = 13.sp
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "${item.durationMs / 1000}.${(item.durationMs % 1000) / 100}秒",
+                                        color = Color(0xFF888888),
+                                        fontSize = 13.sp
+                                    )
+                                    Text(
+                                        text = "削除",
+                                        color = Color(0xFFFF4444),
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.clickable { viewModel.deleteHistoryItem(item) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -348,7 +369,6 @@ private fun HistoryScreen(viewModel: G4CamViewModel) {
         }
     }
 }
-*/
 
 @Composable
 private fun CameraScreen(viewModel: G4CamViewModel) {
@@ -359,9 +379,7 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
     val cameraController = remember { CameraController(context) }
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
 
-    LaunchedEffect(Unit) {
-        viewModel.initializeEngine()
-    }
+    // NOTE: initializeEngine() removed - initialization is done via selectBackend()
 
     LaunchedEffect(Unit) {
         snapshotFlow { viewModel.requestAnalysis }
@@ -450,7 +468,21 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
-            // Backend switch button (always visible, prominent)
+            // History button
+            val historyItems by viewModel.historyItems.collectAsState()
+            if (historyItems.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .clickable { viewModel.toggleHistory() }
+                        .background(Color(0x99000000), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text("📋${historyItems.size}", color = Color.White, fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            // Backend switch button
             Box(
                 modifier = Modifier
                     .clickable { viewModel.switchBackend() }

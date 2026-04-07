@@ -68,6 +68,7 @@ data class CameraUiState(
     val backendDisplayName: String = "",
     val lastDurationMs: Long = 0,
     val detailedPrompt: Boolean = false,
+    val showHistory: Boolean = false,
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -540,6 +541,14 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(countdown = 0)
             requestAnalysis = true
         }
+    }
+
+    fun toggleHistory() {
+        _uiState.value = _uiState.value.copy(showHistory = !_uiState.value.showHistory)
+    }
+
+    fun deleteHistoryItem(item: HistoryItem) {
+        _historyItems.value = _historyItems.value - item
     }
 
     fun switchBackend() {
