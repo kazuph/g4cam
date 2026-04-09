@@ -6,6 +6,10 @@
 -keep class com.google.ai.edge.litertlm.** { *; }
 -keepclassmembers class com.google.ai.edge.litertlm.** { *; }
 
+# ONNX Runtime
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
+
 # Gson (used by LiteRT-LM)
 -keepattributes Signature
 -keepattributes *Annotation*

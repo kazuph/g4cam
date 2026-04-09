@@ -43,7 +43,7 @@ sealed class InferenceState {
     data class Error(val message: String) : InferenceState()
 }
 
-enum class InferenceBackend { AICORE, AICORE_IMAGE_DESC, LITERT_LM }
+enum class InferenceBackend { AICORE, AICORE_IMAGE_DESC, LITERT_LM, LIQUID_ONNX }
 
 sealed class ModelStatus {
     data object Checking : ModelStatus()
@@ -63,6 +63,7 @@ class GemmaInference {
     @Volatile private var aicoreModel: GenerativeModel? = null
     @Volatile private var imageDescriber: ImageDescriber? = null
     @Volatile private var litertEngine: Engine? = null
+    @Volatile private var liquidOnnx = LiquidOnnxInference()
     @Volatile private var activeBackend: InferenceBackend? = null
     @Volatile var activeHardwareBackend: String = ""
         private set
@@ -148,6 +149,19 @@ class GemmaInference {
                 ModelStatus.Unavailable("${backend.javaClass.simpleName}初期化失敗: ${e.message}")
             }
         }
+    }
+
+    suspend fun initializeLiquidOnnx(
+        modelRoot: File,
+        provider: OnnxExecutionProvider,
+    ): ModelStatus {
+        val status = liquidOnnx.initialize(modelRoot, provider)
+        if (status is ModelStatus.Ready) {
+            activeBackend = InferenceBackend.LIQUID_ONNX
+            activeHardwareBackend = status.hardwareBackend
+            isInitialized = true
+        }
+        return status
     }
 
     suspend fun initialize(): ModelStatus {
@@ -250,6 +264,7 @@ class GemmaInference {
                 InferenceBackend.AICORE -> analyzeWithAICore(bitmap, prompt)
                 InferenceBackend.AICORE_IMAGE_DESC -> analyzeWithImageDescription(bitmap)
                 InferenceBackend.LITERT_LM -> analyzeWithLiteRT(bitmap, prompt)
+                InferenceBackend.LIQUID_ONNX -> liquidOnnx.analyze(bitmap, prompt)
                 null -> throw IllegalStateException("No backend active")
             }
             emit(result)
@@ -364,5 +379,6 @@ class GemmaInference {
         imageDescriber = null
         try { litertEngine?.close() } catch (_: Exception) {}
         litertEngine = null
+        try { liquidOnnx.release() } catch (_: Exception) {}
     }
 }

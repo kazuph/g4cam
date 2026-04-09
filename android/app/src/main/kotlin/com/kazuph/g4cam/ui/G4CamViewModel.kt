@@ -17,9 +17,13 @@ import com.kazuph.g4cam.ai.InferenceBackend
 import com.kazuph.g4cam.ai.InferenceService
 import com.kazuph.g4cam.ai.InferenceState
 import com.kazuph.g4cam.ai.ModelStatus
+import com.kazuph.g4cam.ai.OnnxExecutionProvider
 import com.kazuph.g4cam.ai.isPixel10
 import com.kazuph.g4cam.model.DownloadService
 import com.kazuph.g4cam.model.DownloadState
+import com.kazuph.g4cam.model.LocalModelSpec
+import com.kazuph.g4cam.model.LocalModelSpecs
+import com.kazuph.g4cam.model.ModelId
 import com.kazuph.g4cam.model.ModelDownloader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,6 +51,9 @@ enum class BackendChoice(val label: String) {
     LITERT_GPU("LiteRT-LM (GPU)"),
     LITERT_CPU("LiteRT-LM (CPU)"),
     LITERT_NPU("LiteRT-LM (NPU)"),
+    LIQUID_ONNX_NNAPI("Liquid ONNX NNAPI"),
+    LIQUID_ONNX_XNNPACK("Liquid ONNX XNNPACK"),
+    LIQUID_ONNX_CPU("Liquid ONNX CPU"),
 }
 
 data class CameraUiState(
@@ -70,6 +77,8 @@ data class CameraUiState(
     val lastDurationMs: Long = 0,
     val detailedPrompt: Boolean = false,
     val showHistory: Boolean = false,
+    val modelTitle: String = "",
+    val modelDescription: String = "",
 )
 
 class G4CamViewModel(application: Application) : AndroidViewModel(application) {
@@ -84,7 +93,10 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private var ttsReady = false
     private var autoJob: Job? = null
     private var statusHideJob: Job? = null
+    private var downloadObserverJob: Job? = null
     private var analysisStartTime = 0L
+    private var selectedModelSpec: LocalModelSpec = LocalModelSpecs.gemmaLiteRt
+    private var selectedOnnxProvider: OnnxExecutionProvider = OnnxExecutionProvider.CPU
 
     private val promptHistory = mutableListOf<String>()
     private val _historyItems = MutableStateFlow<List<HistoryItem>>(emptyList())
@@ -110,6 +122,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             BackendChoice.LITERT_NPU -> initializeLiteRTWithBackend(
                 Backend.NPU(nativeLibraryDir = getApplication<Application>().applicationInfo.nativeLibraryDir)
             )
+            BackendChoice.LIQUID_ONNX_NNAPI -> initializeLiquidOnnx(OnnxExecutionProvider.NNAPI)
+            BackendChoice.LIQUID_ONNX_XNNPACK -> initializeLiquidOnnx(OnnxExecutionProvider.XNNPACK)
+            BackendChoice.LIQUID_ONNX_CPU -> initializeLiquidOnnx(OnnxExecutionProvider.CPU)
         }
     }
 
@@ -152,19 +167,39 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun initializeLiteRTWithBackend(backend: Backend) {
+        selectedModelSpec = LocalModelSpecs.gemmaLiteRt
         val name = when (backend) {
             is Backend.GPU -> "LiteRT GPU"
             is Backend.NPU -> "LiteRT NPU"
             is Backend.CPU -> "LiteRT CPU"
             else -> "LiteRT"
         }
-        _uiState.value = _uiState.value.copy(backendDisplayName = name)
-        if (downloader.isModelDownloaded()) {
+        _uiState.value = _uiState.value.copy(
+            backendDisplayName = name,
+            modelTitle = selectedModelSpec.title,
+            modelDescription = selectedModelSpec.downloadDescription
+        )
+        if (downloader.isModelDownloaded(selectedModelSpec)) {
             _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
             selectedLiteRTBackend = backend
         } else {
             _uiState.value = _uiState.value.copy(needsModelDownload = true)
             selectedLiteRTBackend = backend
+        }
+    }
+
+    private fun initializeLiquidOnnx(provider: OnnxExecutionProvider) {
+        selectedModelSpec = LocalModelSpecs.liquidOnnx
+        selectedOnnxProvider = provider
+        _uiState.value = _uiState.value.copy(
+            backendDisplayName = "Liquid ONNX ${provider.displayName}",
+            modelTitle = selectedModelSpec.title,
+            modelDescription = selectedModelSpec.downloadDescription
+        )
+        if (downloader.isModelDownloaded(selectedModelSpec)) {
+            _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
+        } else {
+            _uiState.value = _uiState.value.copy(needsModelDownload = true)
         }
     }
 
@@ -198,6 +233,8 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         when (status) {
             is ModelStatus.Ready -> {
                 val displayName = when {
+                    status.backend == InferenceBackend.LIQUID_ONNX && status.hardwareBackend.isNotEmpty() -> "Liquid ONNX ${status.hardwareBackend}"
+                    status.backend == InferenceBackend.LIQUID_ONNX -> "Liquid ONNX"
                     status.hardwareBackend.isNotEmpty() -> "LiteRT ${status.hardwareBackend}"
                     status.backend == InferenceBackend.AICORE -> _uiState.value.backendDisplayName.ifEmpty { "AICore" }
                     status.backend == InferenceBackend.AICORE_IMAGE_DESC -> "AICore"
@@ -212,7 +249,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 scheduleHideStatus()
             }
             is ModelStatus.NeedsFallbackDownload -> {
-                if (downloader.isModelDownloaded()) {
+                if (downloader.isModelDownloaded(selectedModelSpec)) {
                     // Model downloaded but not initialized - show button to start
                     _uiState.value = _uiState.value.copy(
                         needsModelDownload = false,
@@ -245,13 +282,15 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         // Start ForegroundService for background download
-        DownloadService.start(app)
+        DownloadService.start(app, selectedModelSpec.id)
 
         // Observe download state from service
-        viewModelScope.launch {
+        downloadObserverJob?.cancel()
+        downloadObserverJob = viewModelScope.launch {
             DownloadService.downloadState.collect { state ->
                 when (state) {
                     is DownloadState.Downloading -> {
+                        if (state.modelId != selectedModelSpec.id) return@collect
                         val mb = state.downloadedBytes / 1_000_000
                         val totalMb = if (state.totalBytes > 0) state.totalBytes / 1_000_000 else 0L
                         _uiState.value = _uiState.value.copy(
@@ -259,6 +298,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     is DownloadState.Completed -> {
+                        if (state.modelId != selectedModelSpec.id) return@collect
                         _uiState.value = _uiState.value.copy(
                             isDownloading = false,
                             needsLiteRTInit = true,
@@ -266,6 +306,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     is DownloadState.Error -> {
+                        if (state.modelId != selectedModelSpec.id) return@collect
                         _uiState.value = _uiState.value.copy(
                             statusText = "DLエラー: ${state.message}",
                             isDownloading = false,
@@ -282,7 +323,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             modelUnavailable = false
         )
-        if (downloader.isModelDownloaded()) {
+        if (downloader.isModelDownloaded(selectedModelSpec)) {
             _uiState.value = _uiState.value.copy(needsLiteRTInit = true)
         } else {
             _uiState.value = _uiState.value.copy(needsModelDownload = true)
@@ -295,17 +336,26 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 needsLiteRTInit = false,
                 needsModelDownload = false,
                 isLiteRTInitializing = true,
-                statusText = "LiteRT-LMエンジンを初期化中...\n(初回は30〜60秒かかります)",
+                statusText = selectedModelSpec.initDescription,
+                modelDescription = selectedModelSpec.initDescription,
                 showStatus = true
             )
             try {
-                val modelFile = downloader.getModelFile()
-                Log.i(TAG, "Model file: ${modelFile.absolutePath}, exists=${modelFile.exists()}, size=${modelFile.length()}")
-
                 val result = withTimeout(180_000) {
-                    inference.initializeLiteRTWithBackend(modelFile, selectedLiteRTBackend)
+                    when (selectedModelSpec.id) {
+                        ModelId.GEMMA_LITERT_E2B -> {
+                            val modelFile = downloader.getPrimaryFile(selectedModelSpec)
+                            Log.i(TAG, "LiteRT model: ${modelFile.absolutePath}, exists=${modelFile.exists()}, size=${modelFile.length()}")
+                            inference.initializeLiteRTWithBackend(modelFile, selectedLiteRTBackend)
+                        }
+                        ModelId.LIQUID_LFM2_5_VL_450M_ONNX_Q4 -> {
+                            val modelRoot = downloader.getModelRoot(selectedModelSpec)
+                            Log.i(TAG, "Liquid ONNX root: ${modelRoot.absolutePath}")
+                            inference.initializeLiquidOnnx(modelRoot, selectedOnnxProvider)
+                        }
+                    }
                 }
-                Log.i(TAG, "initializeLiteRT result: $result, actualHW=${inference.activeHardwareBackend}")
+                Log.i(TAG, "initialize result: $result, actualHW=${inference.activeHardwareBackend}")
                 _uiState.value = _uiState.value.copy(isLiteRTInitializing = false)
                 when (result) {
                     is ModelStatus.NeedsFallbackDownload -> {
@@ -325,7 +375,10 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                     else -> {
                         handleModelStatus(result)
                         // Pixel 10 + GPU: warn about degraded performance
-                        if (isPixel10() && selectedLiteRTBackend is Backend.GPU) {
+                        if (selectedModelSpec.id == ModelId.GEMMA_LITERT_E2B &&
+                            isPixel10() &&
+                            selectedLiteRTBackend is Backend.GPU
+                        ) {
                             Log.w(TAG, "Pixel 10 + GPU: GPU sampler unavailable, performance degraded")
                             _uiState.value = _uiState.value.copy(
                                 statusText = "準備完了 (LiteRT GPU) - Pixel 10: GPU低速・NPU推奨"
@@ -349,26 +402,17 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         if (state.isAnalyzing || !state.isEngineReady) return
 
         analysisStartTime = System.currentTimeMillis()
+        cancelHideStatus()
 
         // Start foreground service to protect inference from process kill
         InferenceService.start(getApplication())
 
         // Create images for history
-        val thumbScale = 64f / maxOf(bitmap.width, bitmap.height)
-        val thumbnail = Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * thumbScale).toInt(),
-            (bitmap.height * thumbScale).toInt(),
-            true
-        )
-        // Analyzed image (512px - same as sent to model)
-        val analyzeScale = 512f / maxOf(bitmap.width, bitmap.height)
-        val analyzedImage = Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * analyzeScale).toInt(),
-            (bitmap.height * analyzeScale).toInt(),
-            true
-        )
+        val thumbnail = scaleBitmap(bitmap, 64)
+        val analyzedImage = scaleBitmap(bitmap, 512)
+        if (analyzedImage !== bitmap) {
+            bitmap.recycle()
+        }
 
         _uiState.value = state.copy(
             isAnalyzing = true,
@@ -386,7 +430,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         val promptWithHistory = buildPrompt()
 
         viewModelScope.launch {
-            inference.analyze(bitmap, promptWithHistory).collect { inferenceState ->
+            inference.analyze(analyzedImage, promptWithHistory).collect { inferenceState ->
                 when (inferenceState) {
                     is InferenceState.Loading -> {}
                     is InferenceState.Streaming -> {
@@ -399,6 +443,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                 InferenceBackend.AICORE -> "AICore"
                                 InferenceBackend.AICORE_IMAGE_DESC -> "AICore"
                                 InferenceBackend.LITERT_LM -> "LiteRT"
+                                InferenceBackend.LIQUID_ONNX -> "Liquid ONNX"
                                 null -> ""
                             }
                         }
@@ -406,6 +451,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(
                             resultText = inferenceState.text,
                             showGlow = false,
+                            showStatus = true,
                             isAnalyzing = false,
                             lastDurationMs = durationMs,
                             statusText = "${durationMs / 1000}.${(durationMs % 1000) / 100}秒 ($backendLabel)"
@@ -419,7 +465,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         onInferenceFinished(inferenceState.text)
                         speak(inferenceState.text)
-                        bitmap.recycle()
                         // Keep status visible (show duration) until next analysis
                         if (_uiState.value.autoMode) startCountdown()
                     }
@@ -430,14 +475,14 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                 statusText = "セーフティブロック → LiteRT-LMで再試行中..."
                             )
                             // Re-analyze with LiteRT-LM
-                            // Need a copy of bitmap since we haven't recycled yet
-                            inference.analyzeWithFallback(bitmap, promptWithHistory).collect { fallbackState ->
+                            inference.analyzeWithFallback(analyzedImage, promptWithHistory).collect { fallbackState ->
                                 when (fallbackState) {
                                     is InferenceState.Done -> {
                                         val fbDuration = System.currentTimeMillis() - analysisStartTime
                                         _uiState.value = _uiState.value.copy(
                                             resultText = fallbackState.text,
                                             showGlow = false,
+                                            showStatus = true,
                                             isAnalyzing = false,
                                             lastDurationMs = fbDuration,
                                             statusText = "${fbDuration / 1000}.${(fbDuration % 1000) / 100}秒 (LiteRT fallback)"
@@ -450,18 +495,18 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                         )
                                         onInferenceFinished(fallbackState.text)
                                         speak(fallbackState.text)
-                                        bitmap.recycle()
                                         if (_uiState.value.autoMode) startCountdown()
                                     }
                                     is InferenceState.Error -> {
                                         _uiState.value = _uiState.value.copy(
                                             resultText = "フォールバックも失敗: ${fallbackState.message}",
                                             showGlow = false,
+                                            showStatus = true,
                                             isAnalyzing = false,
                                             statusText = "エラー"
                                         )
                                         onInferenceFinished("エラー: ${fallbackState.message}")
-                                        bitmap.recycle()
+                                        recycleCapturedImages(thumbnail, analyzedImage)
                                     }
                                     else -> {}
                                 }
@@ -470,11 +515,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             _uiState.value = _uiState.value.copy(
                                 resultText = "🔒 セーフティフィルターによりブロックされました",
                                 showGlow = false,
+                                showStatus = true,
                                 isAnalyzing = false,
                                 statusText = "ブロック (フォールバックなし)"
                             )
                             onInferenceFinished("セーフティブロック")
-                            bitmap.recycle()
+                            recycleCapturedImages(thumbnail, analyzedImage)
                         }
                     }
                     is InferenceState.Error -> {
@@ -482,11 +528,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(
                             resultText = "エラー: ${inferenceState.message}",
                             showGlow = false,
+                            showStatus = true,
                             isAnalyzing = false,
                             statusText = "エラー"
                         )
                         onInferenceFinished("エラー: ${inferenceState.message}")
-                        bitmap.recycle()
+                        recycleCapturedImages(thumbnail, analyzedImage)
                     }
                     is InferenceState.Idle -> {}
                 }
@@ -495,9 +542,11 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onCaptureError(error: String) {
+        cancelHideStatus()
         _uiState.value = _uiState.value.copy(
             resultText = "キャプチャエラー: $error",
             showGlow = false,
+            showStatus = true,
             isAnalyzing = false
         )
     }
@@ -544,12 +593,14 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteHistoryItem(item: HistoryItem) {
+        recycleCapturedImages(item.thumbnail, item.analyzedImage)
         _historyItems.value = _historyItems.value - item
     }
 
     fun switchBackend() {
         // Reset and show selector
         inference.release()
+        downloadObserverJob?.cancel()
         _uiState.value = CameraUiState(showBackendSelector = true)
     }
 
@@ -562,6 +613,23 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
             "この画像を詳しく説明してください。何が写っているか、色、形、配置、文字があれば読み上げ、全体の雰囲気も含めて日本語で3〜5文で説明してください。"
         } else {
             PROMPT
+        }
+    }
+
+    private fun scaleBitmap(bitmap: Bitmap, maxDim: Int): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= maxDim && height <= maxDim) return bitmap
+        val scale = maxDim.toFloat() / maxOf(width, height)
+        return Bitmap.createScaledBitmap(bitmap, (width * scale).toInt(), (height * scale).toInt(), true)
+    }
+
+    private fun recycleCapturedImages(thumbnail: Bitmap, analyzedImage: Bitmap) {
+        if (!thumbnail.isRecycled && thumbnail !== analyzedImage) {
+            thumbnail.recycle()
+        }
+        if (!analyzedImage.isRecycled) {
+            analyzedImage.recycle()
         }
     }
 
@@ -589,10 +657,18 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun cancelHideStatus() {
+        statusHideJob?.cancel()
+        statusHideJob = null
+    }
+
     override fun onCleared() {
         super.onCleared()
+        _historyItems.value.forEach { recycleCapturedImages(it.thumbnail, it.analyzedImage) }
+        _historyItems.value = emptyList()
         autoJob?.cancel()
         statusHideJob?.cancel()
+        downloadObserverJob?.cancel()
         tts?.stop()
         tts?.shutdown()
         inference.release()

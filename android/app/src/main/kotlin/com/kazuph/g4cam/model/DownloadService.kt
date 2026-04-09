@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 private const val TAG = "DownloadService"
+private const val EXTRA_MODEL_ID = "model_id"
 
 class DownloadService : Service() {
 
@@ -30,9 +31,12 @@ class DownloadService : Service() {
 
         private var isRunning = false
 
-        fun start(context: Context) {
+        fun start(context: Context, modelId: ModelId) {
             if (isRunning) return
-            val intent = Intent(context, DownloadService::class.java)
+            val intent =
+                Intent(context, DownloadService::class.java).apply {
+                    putExtra(EXTRA_MODEL_ID, modelId.name)
+                }
             context.startForegroundService(intent)
         }
 
@@ -49,23 +53,29 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startDownload()
+        val spec = LocalModelSpecs.fromId(intent?.getStringExtra(EXTRA_MODEL_ID))
+        if (spec == null) {
+            Log.e(TAG, "Unknown model id in service intent")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        startDownload(spec)
         return START_NOT_STICKY
     }
 
-    private fun startDownload() {
+    private fun startDownload(spec: LocalModelSpec) {
         val downloader = ModelDownloader(applicationContext)
 
-        if (downloader.isModelDownloaded()) {
+        if (downloader.isModelDownloaded(spec)) {
             Log.i(TAG, "Model already downloaded")
-            _downloadState.value = DownloadState.Completed
+            _downloadState.value = DownloadState.Completed(spec.id)
             showCompleteNotification()
             stopSelf()
             return
         }
 
         downloadJob = scope.launch {
-            downloader.download().collect { state ->
+            downloader.download(spec).collect { state ->
                 _downloadState.value = state
                 when (state) {
                     is DownloadState.Downloading -> {

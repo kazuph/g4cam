@@ -7,6 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,14 +122,14 @@ fun G4CamApp(
             ) {
                 Text(text = "🤖", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("Gemma 4 E2B", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(uiState.modelTitle.ifEmpty { "モデル" }, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
                 if (uiState.isDownloading) {
                     CircularProgressIndicator(color = Color(0xFF0096FF))
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(uiState.statusText, color = Color.White, fontSize = 14.sp)
                 } else {
-                    Text("AIモデルのダウンロードが必要です\nWi-Fi接続を推奨します",
+                    Text(uiState.modelDescription.ifEmpty { "AIモデルのダウンロードが必要です\nWi-Fi接続を推奨します" },
                         color = Color(0xFFCCCCCC), fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 22.sp)
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
@@ -159,9 +161,9 @@ fun G4CamApp(
             ) {
                 Text(text = "🤖", fontSize = 64.sp)
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("モデル準備完了", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(uiState.modelTitle.ifEmpty { "モデル準備完了" }, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("エンジンの初期化に\n30〜60秒かかります",
+                Text(uiState.modelDescription.ifEmpty { "エンジンの初期化に\n30〜60秒かかります" },
                     color = Color(0xFFCCCCCC), fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 22.sp)
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
@@ -572,17 +574,20 @@ private fun CameraScreen(viewModel: G4CamViewModel) {
 private fun BackendSelectorScreen(onSelect: (BackendChoice) -> Unit) {
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.TopCenter
     ) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .fillMaxWidth()
                 .padding(
                     top = statusBarPadding.calculateTopPadding() + 16.dp,
                     start = 24.dp,
-                    end = 24.dp
+                    end = 24.dp,
+                    bottom = 32.dp
                 )
         ) {
             Text("g4cam", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
@@ -653,6 +658,21 @@ private fun BackendSelectorScreen(onSelect: (BackendChoice) -> Unit) {
                 BackendButton("CPU", "最も互換性高い", Color(0xFF008844)) {
                     onSelect(BackendChoice.LITERT_CPU)
                 }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("ONNX Runtime", color = Color(0xFFFFA040), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            BackendButton("Liquid NNAPI (推奨)", "NPU/GPU 自動オフロード狙い", Color(0xFFFF8A2A)) {
+                onSelect(BackendChoice.LIQUID_ONNX_NNAPI)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("Liquid XNNPACK", "CPU 最適化バックエンド", Color(0xFFFF9F45)) {
+                onSelect(BackendChoice.LIQUID_ONNX_XNNPACK)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BackendButton("Liquid CPU", "最も素直な検証用", Color(0xFFCC6F1C)) {
+                onSelect(BackendChoice.LIQUID_ONNX_CPU)
             }
         }
     }
