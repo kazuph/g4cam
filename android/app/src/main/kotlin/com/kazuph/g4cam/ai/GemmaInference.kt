@@ -2,6 +2,7 @@ package com.kazuph.g4cam.ai
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import android.util.Log
 import com.google.mlkit.genai.imagedescription.ImageDescription
 import com.google.mlkit.genai.imagedescription.ImageDescriber
@@ -48,9 +49,13 @@ sealed class ModelStatus {
     data object Checking : ModelStatus()
     data object Downloading : ModelStatus()
     data class DownloadProgress(val bytesDownloaded: Long, val totalBytes: Long) : ModelStatus()
-    data class Ready(val backend: InferenceBackend) : ModelStatus()
+    data class Ready(val backend: InferenceBackend, val hardwareBackend: String = "") : ModelStatus()
     data class NeedsFallbackDownload(val message: String) : ModelStatus()
     data class Unavailable(val message: String) : ModelStatus()
+}
+
+fun isPixel10(): Boolean {
+    return Build.MODEL?.lowercase()?.contains("pixel 10") == true
 }
 
 class GemmaInference {
@@ -59,6 +64,8 @@ class GemmaInference {
     @Volatile private var imageDescriber: ImageDescriber? = null
     @Volatile private var litertEngine: Engine? = null
     @Volatile private var activeBackend: InferenceBackend? = null
+    @Volatile var activeHardwareBackend: String = ""
+        private set
     @Volatile private var isInitialized = false
 
     suspend fun initializeImageDescription(context: Context) {
@@ -115,8 +122,14 @@ class GemmaInference {
                 )
             }
 
+            val backendName = when (backend) {
+                is Backend.GPU -> "GPU"
+                is Backend.NPU -> "NPU"
+                is Backend.CPU -> "CPU"
+                else -> backend.javaClass.simpleName
+            }
             try {
-                Log.i(TAG, "Trying ${backend.javaClass.simpleName} backend...")
+                Log.i(TAG, "Trying $backendName backend...")
                 val config = EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = backend,
@@ -126,9 +139,10 @@ class GemmaInference {
                 engine.initialize()
                 litertEngine = engine
                 activeBackend = InferenceBackend.LITERT_LM
+                activeHardwareBackend = backendName
                 isInitialized = true
-                Log.i(TAG, "LiteRT-LM ${backend.javaClass.simpleName} initialized")
-                ModelStatus.Ready(InferenceBackend.LITERT_LM)
+                Log.i(TAG, "LiteRT-LM $backendName engine initialized successfully (device=${Build.MODEL})")
+                ModelStatus.Ready(InferenceBackend.LITERT_LM, hardwareBackend = backendName)
             } catch (e: Exception) {
                 Log.e(TAG, "LiteRT-LM ${backend.javaClass.simpleName} failed: ${e.message}")
                 ModelStatus.Unavailable("${backend.javaClass.simpleName}初期化失敗: ${e.message}")

@@ -14,8 +14,11 @@ import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.kazuph.g4cam.ai.GemmaInference
 import com.kazuph.g4cam.ai.InferenceBackend
+import com.kazuph.g4cam.ai.InferenceService
 import com.kazuph.g4cam.ai.InferenceState
 import com.kazuph.g4cam.ai.ModelStatus
+import com.kazuph.g4cam.ai.isPixel10
+import com.kazuph.g4cam.model.DownloadService
 import com.kazuph.g4cam.model.DownloadState
 import com.kazuph.g4cam.model.ModelDownloader
 import kotlinx.coroutines.Job
@@ -24,7 +27,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeout
 import java.util.Locale
 
@@ -40,9 +42,8 @@ data class HistoryItem(
 )
 
 enum class BackendChoice(val label: String) {
-    AICORE_FAST("AICore Prompt (E2B Fast)"),
-    AICORE_FULL("AICore Prompt (E4B Full)"),
-    AICORE_IMAGE_DESC("AICore Image Description"),
+    AICORE_FAST("AICore E2B"),
+    AICORE_FULL("AICore E4B"),
     LITERT_GPU("LiteRT-LM (GPU)"),
     LITERT_CPU("LiteRT-LM (CPU)"),
     LITERT_NPU("LiteRT-LM (NPU)"),
@@ -104,7 +105,6 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         when (choice) {
             BackendChoice.AICORE_FAST -> initializeAICore(ModelPreference.FAST)
             BackendChoice.AICORE_FULL -> initializeAICore(ModelPreference.FULL)
-            BackendChoice.AICORE_IMAGE_DESC -> initializeImageDescription()
             BackendChoice.LITERT_GPU -> initializeLiteRTWithBackend(Backend.GPU())
             BackendChoice.LITERT_CPU -> initializeLiteRTWithBackend(Backend.CPU())
             BackendChoice.LITERT_NPU -> initializeLiteRTWithBackend(
@@ -113,31 +113,10 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun initializeImageDescription() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(statusText = "Image Description API初期化中...")
-            try {
-                inference.initializeImageDescription(getApplication())
-                _uiState.value = _uiState.value.copy(
-                    isEngineReady = true,
-                    activeBackend = InferenceBackend.AICORE_IMAGE_DESC,
-                    backendDisplayName = "ImgDesc",
-                    statusText = "準備完了 (ImgDesc)"
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Image Description init failed", e)
-                _uiState.value = _uiState.value.copy(
-                    statusText = "Image Description初期化失敗: ${e.message}",
-                    modelUnavailable = true
-                )
-            }
-        }
-    }
-
     private fun initializeAICore(preference: Int) {
         val modelName = if (preference == ModelPreference.FAST) "E2B" else "E4B"
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(statusText = "AICore ($modelName) 初期化中...")
+            _uiState.value = _uiState.value.copy(statusText = "AICore $modelName 初期化中...")
             try {
                 val config = GenerationConfig.Builder().apply {
                     modelConfig = ModelConfig.Builder().apply {
@@ -218,14 +197,17 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     private fun handleModelStatus(status: ModelStatus) {
         when (status) {
             is ModelStatus.Ready -> {
+                val displayName = when {
+                    status.hardwareBackend.isNotEmpty() -> "LiteRT ${status.hardwareBackend}"
+                    status.backend == InferenceBackend.AICORE -> _uiState.value.backendDisplayName.ifEmpty { "AICore" }
+                    status.backend == InferenceBackend.AICORE_IMAGE_DESC -> "AICore"
+                    else -> "LiteRT"
+                }
                 _uiState.value = _uiState.value.copy(
                     isEngineReady = true,
                     activeBackend = status.backend,
-                    statusText = when (status.backend) {
-                        InferenceBackend.AICORE -> "準備完了 (AICore) - タップで解析"
-                        InferenceBackend.AICORE_IMAGE_DESC -> "準備完了 (ImgDesc) - タップで解析"
-                        InferenceBackend.LITERT_LM -> "準備完了 (LiteRT-LM) - タップで解析"
-                    }
+                    backendDisplayName = displayName,
+                    statusText = "準備完了 ($displayName) - タップで解析"
                 )
                 scheduleHideStatus()
             }
@@ -255,46 +237,43 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startModelDownload() {
+        val app = getApplication<Application>()
+        _uiState.value = _uiState.value.copy(
+            isDownloading = true,
+            needsModelDownload = false,
+            statusText = "モデルをダウンロード中..."
+        )
+
+        // Start ForegroundService for background download
+        DownloadService.start(app)
+
+        // Observe download state from service
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isDownloading = true,
-                needsModelDownload = false,
-                statusText = "モデルをダウンロード中..."
-            )
-            try {
-                downloader.download().collect { state ->
-                    when (state) {
-                        is DownloadState.Downloading -> {
-                            val mb = state.downloadedBytes / 1_000_000
-                            val totalMb = if (state.totalBytes > 0) state.totalBytes / 1_000_000 else 0L
-                            _uiState.value = _uiState.value.copy(
-                                statusText = if (totalMb > 0) "DL中... ${mb}MB / ${totalMb}MB" else "DL中... ${mb}MB"
-                            )
-                        }
-                        is DownloadState.Completed -> {
-                            _uiState.value = _uiState.value.copy(
-                                isDownloading = false,
-                                needsLiteRTInit = true,
-                                statusText = "DL完了！初期化ボタンを押してください"
-                            )
-                        }
-                        is DownloadState.Error -> {
-                            _uiState.value = _uiState.value.copy(
-                                statusText = "DLエラー: ${state.message}",
-                                isDownloading = false,
-                                needsModelDownload = true
-                            )
-                        }
-                        is DownloadState.Idle -> {}
+            DownloadService.downloadState.collect { state ->
+                when (state) {
+                    is DownloadState.Downloading -> {
+                        val mb = state.downloadedBytes / 1_000_000
+                        val totalMb = if (state.totalBytes > 0) state.totalBytes / 1_000_000 else 0L
+                        _uiState.value = _uiState.value.copy(
+                            statusText = if (totalMb > 0) "DL中... ${mb}MB / ${totalMb}MB" else "DL中... ${mb}MB"
+                        )
                     }
+                    is DownloadState.Completed -> {
+                        _uiState.value = _uiState.value.copy(
+                            isDownloading = false,
+                            needsLiteRTInit = true,
+                            statusText = "DL完了！初期化ボタンを押してください"
+                        )
+                    }
+                    is DownloadState.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            statusText = "DLエラー: ${state.message}",
+                            isDownloading = false,
+                            needsModelDownload = true
+                        )
+                    }
+                    is DownloadState.Idle -> {}
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed", e)
-                _uiState.value = _uiState.value.copy(
-                    statusText = "DLエラー: ${e.message}",
-                    isDownloading = false,
-                    needsModelDownload = true
-                )
             }
         }
     }
@@ -326,7 +305,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                 val result = withTimeout(180_000) {
                     inference.initializeLiteRTWithBackend(modelFile, selectedLiteRTBackend)
                 }
-                Log.i(TAG, "initializeLiteRT result: $result")
+                Log.i(TAG, "initializeLiteRT result: $result, actualHW=${inference.activeHardwareBackend}")
                 _uiState.value = _uiState.value.copy(isLiteRTInitializing = false)
                 when (result) {
                     is ModelStatus.NeedsFallbackDownload -> {
@@ -343,7 +322,16 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         return@launch
                     }
-                    else -> handleModelStatus(result)
+                    else -> {
+                        handleModelStatus(result)
+                        // Pixel 10 + GPU: warn about degraded performance
+                        if (isPixel10() && selectedLiteRTBackend is Backend.GPU) {
+                            Log.w(TAG, "Pixel 10 + GPU: GPU sampler unavailable, performance degraded")
+                            _uiState.value = _uiState.value.copy(
+                                statusText = "準備完了 (LiteRT GPU) - Pixel 10: GPU低速・NPU推奨"
+                            )
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "LiteRT init timeout/error", e)
@@ -361,6 +349,9 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         if (state.isAnalyzing || !state.isEngineReady) return
 
         analysisStartTime = System.currentTimeMillis()
+
+        // Start foreground service to protect inference from process kill
+        InferenceService.start(getApplication())
 
         // Create images for history
         val thumbScale = 64f / maxOf(bitmap.width, bitmap.height)
@@ -406,7 +397,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                         val backendLabel = _uiState.value.backendDisplayName.ifEmpty {
                             when (_uiState.value.activeBackend) {
                                 InferenceBackend.AICORE -> "AICore"
-                                InferenceBackend.AICORE_IMAGE_DESC -> "ImgDesc"
+                                InferenceBackend.AICORE_IMAGE_DESC -> "AICore"
                                 InferenceBackend.LITERT_LM -> "LiteRT"
                                 null -> ""
                             }
@@ -426,6 +417,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             text = inferenceState.text,
                             durationMs = durationMs
                         )
+                        onInferenceFinished(inferenceState.text)
                         speak(inferenceState.text)
                         bitmap.recycle()
                         // Keep status visible (show duration) until next analysis
@@ -456,6 +448,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                             text = fallbackState.text,
                                             durationMs = fbDuration
                                         )
+                                        onInferenceFinished(fallbackState.text)
                                         speak(fallbackState.text)
                                         bitmap.recycle()
                                         if (_uiState.value.autoMode) startCountdown()
@@ -467,6 +460,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                             isAnalyzing = false,
                                             statusText = "エラー"
                                         )
+                                        onInferenceFinished("エラー: ${fallbackState.message}")
                                         bitmap.recycle()
                                     }
                                     else -> {}
@@ -479,6 +473,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                                 isAnalyzing = false,
                                 statusText = "ブロック (フォールバックなし)"
                             )
+                            onInferenceFinished("セーフティブロック")
                             bitmap.recycle()
                         }
                     }
@@ -490,6 +485,7 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
                             isAnalyzing = false,
                             statusText = "エラー"
                         )
+                        onInferenceFinished("エラー: ${inferenceState.message}")
                         bitmap.recycle()
                     }
                     is InferenceState.Idle -> {}
@@ -567,6 +563,12 @@ class G4CamViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             PROMPT
         }
+    }
+
+    private fun onInferenceFinished(resultText: String) {
+        val app = getApplication<Application>()
+        InferenceService.stop(app)
+        InferenceService.notifyComplete(app, resultText)
     }
 
     private fun speak(text: String) {

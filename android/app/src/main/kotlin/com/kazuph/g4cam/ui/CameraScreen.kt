@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kazuph.g4cam.ai.isPixel10
 import com.kazuph.g4cam.camera.CameraController
 import com.kazuph.g4cam.camera.CameraPreview
 import kotlinx.coroutines.flow.filter
@@ -591,31 +592,67 @@ private fun BackendSelectorScreen(onSelect: (BackendChoice) -> Unit) {
 
             Text("AICore (Gemini Nano)", color = Color(0xFF0096FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
-            BackendButton("E2B Fast (推奨)", "高速・NPU活用", Color(0xFF0096FF)) {
+            BackendButton("Gemma E2B (推奨)", "高速・オンデバイス推論", Color(0xFF0096FF)) {
                 onSelect(BackendChoice.AICORE_FAST)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            BackendButton("E4B Full", "高精度・やや遅い", Color(0xFF0066AA)) {
+            BackendButton("Gemma E4B", "高精度・大きいモデル", Color(0xFF0066AA)) {
                 onSelect(BackendChoice.AICORE_FULL)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            BackendButton("Image Description", "画像特化API・フィルター緩い", Color(0xFF0044CC)) {
-                onSelect(BackendChoice.AICORE_IMAGE_DESC)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("LiteRT-LM (要モデルDL 2.6GB)", color = Color(0xFF00CC66), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
-            BackendButton("GPU", "メモリ効率良い", Color(0xFF00CC66)) {
-                onSelect(BackendChoice.LITERT_GPU)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            BackendButton("NPU", "ハードウェア最適化", Color(0xFF00AA55)) {
-                onSelect(BackendChoice.LITERT_NPU)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            BackendButton("CPU", "最も互換性高い", Color(0xFF008844)) {
-                onSelect(BackendChoice.LITERT_CPU)
+
+            val pixel10 = isPixel10()
+
+            if (pixel10) {
+                BackendButton("CPU (推奨)", "Pixel 10で安定動作", Color(0xFF00CC66)) {
+                    onSelect(BackendChoice.LITERT_CPU)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                BackendButton("GPU (内部CPU動作)", "GPUサンプラー非対応・実質CPU速度", Color(0xFF666666)) {
+                    onSelect(BackendChoice.LITERT_GPU)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                // NPU: disabled on Pixel 10 (no Tensor G5 model available)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF222222), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 20.dp, vertical = 14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("NPU (非対応)", color = Color(0xFF555555), fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                            Text("Tensor G5用モデル未提供", color = Color(0xFF444444), fontSize = 13.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Pixel 10: GPUサンプラー非対応・NPUモデル未提供",
+                    color = Color(0xFFFF8800),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                BackendButton("GPU", "メモリ効率良い", Color(0xFF00CC66)) {
+                    onSelect(BackendChoice.LITERT_GPU)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                BackendButton("NPU", "ハードウェア最適化 (Qualcomm)", Color(0xFF00AA55)) {
+                    onSelect(BackendChoice.LITERT_NPU)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                BackendButton("CPU", "最も互換性高い", Color(0xFF008844)) {
+                    onSelect(BackendChoice.LITERT_CPU)
+                }
             }
         }
     }

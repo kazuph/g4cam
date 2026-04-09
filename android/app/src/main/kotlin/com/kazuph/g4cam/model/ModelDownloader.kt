@@ -1,6 +1,7 @@
 package com.kazuph.g4cam.model
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -10,6 +11,8 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+
+private const val TAG = "ModelDownloader"
 
 sealed class DownloadState {
     data object Idle : DownloadState()
@@ -32,7 +35,20 @@ class ModelDownloader(private val context: Context) {
         .followRedirects(true)
         .build()
 
-    fun getModelFile(): File = File(context.filesDir, MODEL_FILENAME)
+    fun getModelFile(): File {
+        // Check internal storage first
+        val internal = File(context.filesDir, MODEL_FILENAME)
+        if (internal.exists() && internal.length() > 2_500_000_000L) return internal
+
+        // Check external app storage (accessible via adb, no permission needed)
+        val external = context.getExternalFilesDir(null)?.let { File(it, MODEL_FILENAME) }
+        if (external != null && external.exists() && external.length() > 2_500_000_000L) {
+            Log.i(TAG, "Model found in external storage: ${external.absolutePath}")
+            return external
+        }
+
+        return internal
+    }
 
     // Model is ~2.58GB. Only consider complete if > 2.5GB
     fun isModelDownloaded(): Boolean = getModelFile().let { it.exists() && it.length() > 2_500_000_000L }
@@ -40,7 +56,7 @@ class ModelDownloader(private val context: Context) {
     fun download(): Flow<DownloadState> = flow {
         emit(DownloadState.Downloading(0f))
 
-        val modelFile = getModelFile()
+        val modelFile = File(context.filesDir, MODEL_FILENAME)
         val tempFile = File(context.filesDir, "$MODEL_FILENAME.tmp")
 
         try {
